@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Колесо шансов — Gift Chance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="noise-overlay" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">🎁</span>
+    <span class="brand-text">Gift&nbsp;Chance</span>
+  </div>
+  <div id="balanceChip" class="balance-chip hidden">
+    <span class="balance-label">Баланс</span>
+    <span id="balanceValue" class="balance-value">0</span>
+    <span class="balance-unit">шанс.</span>
+  </div>
+</header>
+
+<!-- ЭКРАН ВХОДА -->
+<main id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <p class="eyebrow">Вход через Telegram</p>
+    <h1 class="login-title">Крутите колесо,<br />множьте шансы</h1>
+    <p class="login-sub">Введите свой Telegram ID — мы пришлём код подтверждения прямо в бота.</p>
+
+    <form id="idForm" class="login-form">
+      <label class="field-label" for="telegramId">Telegram ID</label>
+      <input id="telegramId" class="field-input" type="text" inputmode="numeric" autocomplete="off"
+             placeholder="например, 106240982" required />
+      <button type="submit" class="btn btn-primary" id="sendCodeBtn">Отправить код</button>
+      <p class="hint">Не знаете ID? Спросите у бота — команда <code>/start</code> подскажет.</p>
+    </form>
+
+    <form id="codeForm" class="login-form hidden">
+      <label class="field-label" for="codeInput">Код из Telegram</label>
+      <input id="codeInput" class="field-input code-input" type="text" inputmode="numeric" maxlength="6"
+             placeholder="______" autocomplete="one-time-code" required />
+      <button type="submit" class="btn btn-primary" id="verifyBtn">Войти</button>
+      <button type="button" class="btn btn-ghost" id="resendBtn">Отправить код ещё раз</button>
+    </form>
+
+    <p id="loginError" class="login-error hidden"></p>
+  </div>
+</main>
+
+<!-- ЭКРАН КОЛЕСА -->
+<main id="wheelScreen" class="wheel-screen hidden">
+
+  <section class="wheel-stage">
+    <div class="wheel-pointer" aria-hidden="true"></div>
+    <div class="wheel-rim">
+      <div id="wheel" class="wheel"></div>
+      <div class="wheel-hub">SPIN</div>
+    </div>
+
+    <div id="resultBadge" class="result-badge hidden"></div>
+  </section>
+
+  <section class="control-panel">
+    <div class="bet-control">
+      <span class="bet-label">Ставка</span>
+      <div class="bet-stepper">
+        <button type="button" id="betMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
+        <span id="betValue" class="bet-value">5</span>
+        <button type="button" id="betPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+      </div>
+      <span class="bet-unit">шансов</span>
+    </div>
+
+    <button id="spinBtn" class="btn btn-spin">
+      <span class="btn-spin-text">Крутить</span>
+      <span class="btn-spin-cost" id="spinCost">−5 шансов</span>
+    </button>
+
+    <p id="spinError" class="spin-error hidden"></p>
+  </section>
+
+  <section class="legend">
+    <p class="legend-title">Секции колеса</p>
+    <ul class="legend-list" id="legendList"></ul>
+  </section>
+
+  <section class="history-panel">
+    <p class="legend-title">Последние вращения</p>
+    <ul id="historyList" class="history-list">
+      <li class="history-empty">Пока пусто — сделайте первый прокрут.</li>
+    </ul>
+  </section>
+
+</main>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
