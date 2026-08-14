@@ -291,7 +291,7 @@ body {
   position: absolute;
   top: 50%;
   left: 50%;
-  transform-origin: 0 0;
+  transform-origin: 50% 50%;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 15px;
