@@ -55,8 +55,8 @@ CODE_TTL_SECONDS = 5 * 60
 SESSION_TTL_SECONDS = 30 * 24 * 3600  # 30 дней
 CODE_RESEND_COOLDOWN = 30  # сек между повторными кодами
 
-MIN_BET = 5
-BET_STEP = 5
+MIN_BET = 1
+BET_STEP = 1
 MAX_BET = 100
 
 # label, multiplier (None -> бонусный шанс, не денежный множитель), вес (промилле, сумма = 1000)
@@ -363,8 +363,8 @@ async def spin(body: SpinBody, user=Depends(current_user)):
     username = user["username"]
     bet = body.bet
 
-    if bet % BET_STEP != 0:
-        raise HTTPException(status_code=400, detail=f"Ставка должна быть кратна {BET_STEP}")
+    if bet != MIN_BET and (bet - MIN_BET) % BET_STEP != 0:
+        raise HTTPException(status_code=400, detail=f"Некорректная ставка")
 
     if not try_spend(user_id, username, bet):
         raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
