@@ -1,7 +1,9 @@
 {
-     "cleanUrls": true,
-     "trailingSlash": false,
-     "functions": {
-       "api/index.py": {}
-     }
-   }
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 30
+    }
+  }
+}
