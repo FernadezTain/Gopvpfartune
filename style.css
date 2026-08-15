@@ -698,6 +698,26 @@ body {
   color: var(--gold);
 }
 
+.bet-value-input {
+  width: 4.5ch;
+  padding: 2px 2px 3px;
+  border: none;
+  border-bottom: 1.5px solid transparent;
+  background: transparent;
+  border-radius: 4px;
+  outline: none;
+  -moz-appearance: textfield;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.bet-value-input::-webkit-outer-spin-button,
+.bet-value-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.bet-value-input:hover { background: rgba(255,255,255,0.04); }
+.bet-value-input:focus { border-bottom-color: var(--gold); background: rgba(255,255,255,0.06); }
+.bet-value-input::selection { background: rgba(255,200,87,0.35); }
+
 .bet-unit { font-size: 12.5px; color: var(--text-dim); }
 
 .btn-spin {
