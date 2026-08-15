@@ -27,6 +27,14 @@
   const POLL_MS = 700;        // редкая сверка с сервером — растёт мультипликатор локально, по времени
   let bet = 5;
 
+  // На телефонах ограничиваем и плотность канваса, и частоту его перерисовки:
+  // devicePixelRatio на многих Android/iPhone доходит до 3, а полноэкранный
+  // канвас в таком разрешении с заливкой-градиентом на каждый кадр — это и
+  // есть основной источник "лагов" в самолётике на мобильных.
+  const IS_MOBILE = window.matchMedia("(max-width: 640px)").matches || "ontouchstart" in window;
+  const CANVAS_DPR = Math.min(window.devicePixelRatio || 1, IS_MOBILE ? 1.5 : 2);
+  let mobileFrameSkip = 0;
+
   // Блокировка кнопки "Поставить" на BET_LOCK_MS после конца раунда
   // (краш или кэшаут) — простая и надёжная альтернатива подгонке таймеров:
   // просто даём и локальному rAF-таймеру, и 700мс-поллингу время осесть,
@@ -75,11 +83,40 @@
 
   function resizeCanvas() {
     const rect = els.canvas.parentElement.getBoundingClientRect();
-    els.canvas.width = rect.width * devicePixelRatio;
-    els.canvas.height = rect.height * devicePixelRatio;
-    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    els.canvas.width = rect.width * CANVAS_DPR;
+    els.canvas.height = rect.height * CANVAS_DPR;
+    ctx.setTransform(CANVAS_DPR, 0, 0, CANVAS_DPR, 0, 0);
+    gradCacheH = 0; // размер сменился — закэшированные градиенты больше не подходят
   }
   window.addEventListener("resize", resizeCanvas);
+
+  // Градиент заливки под кривой не меняется, пока не поменяется высота
+  // канваса или статус (полёт/краш) — пересоздавать его 60 раз в секунду
+  // (как было раньше) незачем, это лишняя работа на каждый кадр.
+  let gradCacheH = 0;
+  let gradFlying = null;
+  let gradCrashed = null;
+  function getTrackGradient(h, crashed) {
+    if (gradCacheH !== h) {
+      gradFlying = null;
+      gradCrashed = null;
+      gradCacheH = h;
+    }
+    if (crashed) {
+      if (!gradCrashed) {
+        gradCrashed = ctx.createLinearGradient(0, 0, 0, h);
+        gradCrashed.addColorStop(0, "rgba(255,92,119,0.35)");
+        gradCrashed.addColorStop(1, "rgba(255,200,87,0)");
+      }
+      return gradCrashed;
+    }
+    if (!gradFlying) {
+      gradFlying = ctx.createLinearGradient(0, 0, 0, h);
+      gradFlying.addColorStop(0, "rgba(255,200,87,0.35)");
+      gradFlying.addColorStop(1, "rgba(255,200,87,0)");
+    }
+    return gradFlying;
+  }
 
   function drawGraph(currentMult, crashed) {
     const w = els.canvas.clientWidth, h = els.canvas.clientHeight;
@@ -100,9 +137,7 @@
     ctx.moveTo(toX(0), toY(1));
     history.forEach((p) => ctx.lineTo(toX(p.t), toY(p.mult)));
 
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, crashed ? "rgba(255,92,119,0.35)" : "rgba(255,200,87,0.35)");
-    grad.addColorStop(1, "rgba(255,200,87,0)");
+    const grad = getTrackGradient(h, crashed);
 
     ctx.lineTo(toX(history[history.length - 1].t), h);
     ctx.lineTo(toX(0), h);
@@ -154,7 +189,14 @@
       els.multiplier.classList.remove("is-crashed");
       history.push({ t: elapsed, mult });
       if (history.length > 400) history.shift();
-      drawGraph(mult, false);
+
+      // Цифра множителя обновляется каждый кадр (это просто текст — дёшево),
+      // а сама перерисовка канваса на телефонах прорежена вдвое: график
+      // визуально всё равно гладкий, а нагрузка на GPU ощутимо ниже.
+      mobileFrameSkip++;
+      if (!IS_MOBILE || mobileFrameSkip % 2 === 0) {
+        drawGraph(mult, false);
+      }
       updateActionButton();
       localAnimHandle = requestAnimationFrame(frame);
     }
