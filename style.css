@@ -148,16 +148,23 @@ body {
 
 .topbar {
   position: sticky;
-  top: 0;
+  top: 12px;
   z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 18px 28px;
-  backdrop-filter: blur(10px);
-  background: linear-gradient(to bottom, rgba(18,16,28,0.9), rgba(18,16,28,0.55));
-  border-bottom: 1px solid var(--panel-line);
+  margin: 12px 14px 0;
+  padding: 14px 22px;
+  border-radius: 20px;
+  background: rgba(24,21,38,0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.07);
+  box-shadow:
+    0 14px 34px rgba(0,0,0,0.45),
+    0 2px 8px rgba(0,0,0,0.3),
+    inset 0 1px 0 rgba(255,255,255,0.05);
 }
 
 .brand {
@@ -170,12 +177,10 @@ body {
   font-size: 18px;
 }
 
-.brand-mark { font-size: 20px; }
-
 .back-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
@@ -187,7 +192,6 @@ body {
 }
 
 .back-btn:hover { color: var(--text); background: var(--panel); }
-.back-arrow { font-size: 17px; }
 
 .balance-chip {
   display: flex;
@@ -569,6 +573,98 @@ body {
   background: rgba(93, 74, 191, 0.45);
   transform: translateX(-50%);
 }
+
+/* ---------- Иконки интерфейса (без эмодзи — только CSS-формы) ---------- */
+
+.icon-logo {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  position: relative;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--violet), var(--gold));
+  box-shadow: 0 4px 10px -3px rgba(123,97,255,0.6), inset 0 1px 0 rgba(255,255,255,0.35);
+}
+.icon-logo::before,
+.icon-logo::after {
+  content: "";
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff;
+}
+.icon-logo::before { top: 5px; left: 5px; }
+.icon-logo::after { bottom: 5px; right: 5px; }
+
+.icon-back {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.icon-home {
+  position: relative;
+  display: inline-block;
+  width: 17px;
+  height: 15px;
+}
+.icon-home::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 7px solid currentColor;
+}
+.icon-home::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 2px;
+  width: 13px;
+  height: 9px;
+  background: currentColor;
+  border-radius: 2px 2px 1px 1px;
+}
+
+.icon-user {
+  position: relative;
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+}
+.icon-user::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.icon-user::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 15px;
+  height: 8px;
+  border-radius: 8px 8px 0 0;
+  background: currentColor;
+}
+
+.icon-user-lg { width: 30px; height: 30px; }
+.icon-user-lg::before { width: 13px; height: 13px; }
+.icon-user-lg::after { width: 28px; height: 15px; }
 
 /* ---------- Wheel screen ---------- */
 
@@ -1203,7 +1299,11 @@ body {
 .nav-btn:active { transform: scale(0.94); }
 
 .nav-icon {
-  font-size: 19px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 17px;
   line-height: 1;
   transition: transform 0.2s ease, filter 0.2s ease;
 }
@@ -1214,8 +1314,53 @@ body {
 }
 
 .nav-btn.is-active .nav-icon {
+  transform: translateY(-1px);
   filter: drop-shadow(0 0 6px rgba(255,200,87,0.55));
 }
+
+/* Шарик, катящийся под доком в сторону активного раздела */
+.nav-ball {
+  position: absolute;
+  bottom: -13px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 28%, #ffe9b8, var(--gold) 55%, #d9862c 100%);
+  box-shadow: 0 3px 6px rgba(0,0,0,0.45), 0 0 10px rgba(255,200,87,0.5);
+  transition: left 0.42s cubic-bezier(0.34, 1.35, 0.64, 1), transform 0.42s cubic-bezier(0.34, 1.35, 0.64, 1);
+  will-change: left, transform;
+  pointer-events: none;
+  z-index: 5;
+}
+.nav-ball::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, transparent 40%, rgba(0,0,0,0.28) 100%);
+}
+
+/* ---------- Анимации переключения разделов ---------- */
+
+@keyframes screen-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes screen-slide-right-in {
+  from { opacity: 0; transform: translateX(26px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes screen-slide-left-in {
+  from { opacity: 0; transform: translateX(-26px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.screen-anim-fade { animation: screen-fade-in 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+.screen-anim-right { animation: screen-slide-right-in 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
+.screen-anim-left { animation: screen-slide-left-in 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
 
 @media (max-width: 520px) {
   .topbar { padding: 14px 16px; }
