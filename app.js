@@ -16,6 +16,10 @@
   };
 
   const els = {
+    preloader: document.getElementById("preloader"),
+    lettersWrap: document.querySelector(".preloader-letters"),
+    lettersFill: document.getElementById("lettersFill"),
+
     loginScreen: document.getElementById("loginScreen"),
     wheelScreen: document.getElementById("wheelScreen"),
     balanceChip: document.getElementById("balanceChip"),
@@ -312,17 +316,62 @@
     }
   }
 
+  // ---------- preloader ----------
+
+  // Плавно "заливает" буквы GP снизу вверх (серый -> жёлтый) за заданное время
+  // и возвращает промис, который резолвится, когда анимация полностью завершена.
+  function runPreloaderFill(durationMs) {
+    return new Promise((resolve) => {
+      const start = performance.now();
+
+      function frame(now) {
+        const t = Math.min(1, (now - start) / durationMs);
+        // easeInOutQuad — мягкий разгон и мягкое замедление
+        const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const topInset = (1 - eased) * 100;
+        els.lettersFill.style.clipPath = `inset(${topInset}% 0 0 0)`;
+
+        if (t < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          els.lettersWrap.classList.add("is-filled");
+          resolve();
+        }
+      }
+
+      requestAnimationFrame(frame);
+    });
+  }
+
+  function hidePreloader() {
+    els.preloader.classList.add("preloader-out");
+    window.setTimeout(() => {
+      els.preloader.remove();
+    }, 550);
+  }
+
   // ---------- boot ----------
 
   (async function boot() {
+    // Заливка идёт параллельно с проверкой сессии — что бы ни случилось раньше,
+    // экран загрузки не уйдёт быстрее, чем за ~1.4с, и не позже, чем оба процесса завершатся.
+    const fillDone = runPreloaderFill(1400);
+
+    let loggedIn = false;
     if (localStorage.getItem(TOKEN_KEY)) {
       try {
         await enterApp();
-        return;
+        loggedIn = true;
       } catch (_) {
         localStorage.removeItem(TOKEN_KEY);
       }
     }
-    els.loginScreen.classList.remove("hidden");
+
+    if (!loggedIn) {
+      els.loginScreen.classList.remove("hidden");
+    }
+
+    await fillDone;
+    hidePreloader();
   })();
 })();
