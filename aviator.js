@@ -31,6 +31,12 @@
   let flyingStartedAt = null; // performance.now() в момент старта полёта
   let localAnimHandle = null;
   let pollHandle = null;
+  // Инвалидирует ответы на устаревшие /state-запросы: если кэшаут и
+  // новая ставка успевают произойти быстрее, чем вернётся ответ на
+  // /state от ПРЕДЫДУЩЕГО полёта, этот ответ, придя позже, не должен
+  // переписывать таймер уже нового раунда — иначе табло "скачет" на
+  // множитель из прошлого полёта (баг, который чинит этот токен).
+  let pollToken = 0;
 
   const history = []; // точки графика [{t, mult}]
 
@@ -127,10 +133,15 @@
 
   function startPolling() {
     stopPolling();
+    const myToken = pollToken;
     pollHandle = setInterval(async () => {
-      if (roundStatus !== "flying") return;
+      if (roundStatus !== "flying" || myToken !== pollToken) return;
       try {
         const state = await AppState.api("/api/aviator/state", { auth: true });
+        // Пока ждали ответ, раунд мог уже смениться (кэшаут + новая
+        // ставка). Если токен уже не совпадает — это ответ по старому,
+        // неактуальному полёту, применять его нельзя.
+        if (myToken !== pollToken || roundStatus !== "flying") return;
         if (!state.has_round) {
           // сервер решил, что полёт уже разбился (ленивое завершение по времени) —
           // локально мы это ещё не знали, отдельного push-уведомления нет
@@ -148,6 +159,7 @@
   }
 
   function stopPolling() {
+    pollToken++; // любой ещё летящий по сети ответ прошлого опроса теперь считается устаревшим
     if (pollHandle) {
       clearInterval(pollHandle);
       pollHandle = null;
