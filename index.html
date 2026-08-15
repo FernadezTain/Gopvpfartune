@@ -11,6 +11,7 @@
 </head>
 <body>
 
+<div class="bg-decor" aria-hidden="true"></div>
 <div class="noise-overlay" aria-hidden="true"></div>
 
 <!-- ЭКРАН ЗАГРУЗКИ -->
@@ -76,7 +77,7 @@
     <button class="game-card game-card-aviator" data-target="aviatorScreen">
       <span class="game-card-arrow" aria-hidden="true"></span>
       <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-plane"></span></span>
-      <span class="game-card-name">Самолётик</span>
+      <span class="game-card-name">Авиатор</span>
       <span class="game-card-sub">Успей забрать до краша</span>
     </button>
   </div>
@@ -123,39 +124,54 @@
 
 <!-- ЭКРАН САМОЛЁТИКА -->
 <main id="aviatorScreen" class="aviator-screen hidden">
+  <div class="aviator-layout">
 
-  <section class="aviator-stage">
-    <canvas id="aviatorCanvas" class="aviator-canvas"></canvas>
-    <div id="aviatorMultiplier" class="aviator-multiplier">1.00x</div>
-    <div id="aviatorStatus" class="aviator-status">Ожидание ставок…</div>
-  </section>
-
-  <section class="control-panel">
-    <div class="bet-control">
-      <span class="bet-label">Ставка</span>
-      <div class="bet-stepper">
-        <button type="button" id="aviBetMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
-        <input id="aviBetValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
-        <button type="button" id="aviBetPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+    <section class="aviator-stage">
+      <div class="aviator-stage-grid" aria-hidden="true"></div>
+      <canvas id="aviatorCanvas" class="aviator-canvas"></canvas>
+      <div id="aviatorPlane" class="aviator-plane is-hidden" aria-hidden="true">
+        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="4,58 60,32 4,6 18,32" fill="#ffd77a"/>
+          <polygon points="4,58 22,38 18,32" fill="#d9862c"/>
+          <polygon points="4,6 22,26 18,32" fill="#fff2d0"/>
+        </svg>
       </div>
-      <span class="bet-unit">шансов</span>
+      <div class="aviator-readout">
+        <p class="aviator-readout-label">Множитель</p>
+        <div id="aviatorMultiplier" class="aviator-multiplier">1.00x</div>
+      </div>
+      <div id="aviatorStatus" class="aviator-status">Ожидание ставок…</div>
+    </section>
+
+    <div class="aviator-side">
+      <section class="control-panel">
+        <div class="bet-control">
+          <span class="bet-label">Ставка</span>
+          <div class="bet-stepper">
+            <button type="button" id="aviBetMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
+            <input id="aviBetValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
+            <button type="button" id="aviBetPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+          </div>
+          <span class="bet-unit">шансов</span>
+        </div>
+
+        <button id="aviActionBtn" class="btn btn-spin">
+          <span class="btn-spin-text" id="aviActionText">Поставить</span>
+          <span class="btn-spin-cost" id="aviActionCost">−5 шансов</span>
+        </button>
+
+        <p id="aviError" class="spin-error hidden"></p>
+      </section>
+
+      <section class="legend">
+        <p class="legend-title">Игроки в раунде</p>
+        <ul id="aviPlayersList" class="history-list">
+          <li class="history-empty">Пока никто не поставил.</li>
+        </ul>
+      </section>
     </div>
 
-    <button id="aviActionBtn" class="btn btn-spin">
-      <span class="btn-spin-text" id="aviActionText">Поставить</span>
-      <span class="btn-spin-cost" id="aviActionCost">−5 шансов</span>
-    </button>
-
-    <p id="aviError" class="spin-error hidden"></p>
-  </section>
-
-  <section class="legend">
-    <p class="legend-title">Игроки в раунде</p>
-    <ul id="aviPlayersList" class="history-list">
-      <li class="history-empty">Пока никто не поставил.</li>
-    </ul>
-  </section>
-
+  </div>
 </main>
 
 <!-- ПРОФИЛЬ -->
