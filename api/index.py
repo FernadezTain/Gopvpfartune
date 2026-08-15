@@ -442,6 +442,45 @@ async def games_history(token: str = Depends(bearer_token)):
     ]}
 
 
+@app.get("/api/games/recent")
+async def games_recent(token: str = Depends(bearer_token)):
+    """Последние 5 игр ВСЕХ пользователей (любые игры — колесо, самолётик).
+    В отличие от /api/games/history — не персональная лента, а общая,
+    используется для блока "Последние игры" на экранах игр. Доступ
+    по-прежнему только для залогиненных (валидный токен), но сами данные
+    не фильтруются по user_id."""
+    with db() as conn:
+        require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                COALESCE(u.username, g.user_id::text) AS username,
+                g.game_type,
+                g.bet,
+                g.result_label,
+                g.payout,
+                g.balance_change,
+                g.created_at
+            FROM game_rounds g
+            LEFT JOIN user_chances u ON u.user_id = g.user_id
+            ORDER BY g.created_at DESC
+            LIMIT 5
+        """)
+        rows = cur.fetchall()
+        cur.close()
+    return {"games": [
+        {
+            "username": r[0],
+            "game_type": r[1],
+            "bet": r[2],
+            "result_label": r[3],
+            "payout": r[4],
+            "balance_change": r[5],
+            "created_at": r[6].isoformat() if r[6] else None,
+        } for r in rows
+    ]}
+
+
 @app.get("/api/health")
 async def health():
     return {"ok": True, "time": int(time.time())}
