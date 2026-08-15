@@ -85,41 +85,52 @@
 
 <!-- ЭКРАН КОЛЕСА -->
 <main id="wheelScreen" class="wheel-screen hidden">
+  <div class="wheel-layout">
 
-  <section class="wheel-stage">
-    <div class="wheel-pointer" aria-hidden="true"></div>
-    <div class="wheel-rim">
-      <div id="wheel" class="wheel"></div>
-      <div class="wheel-hub">SPIN</div>
-    </div>
-
-    <div id="resultBadge" class="result-badge hidden"></div>
-  </section>
-
-  <section class="control-panel">
-    <div class="bet-control">
-      <span class="bet-label">Ставка</span>
-      <div class="bet-stepper">
-        <button type="button" id="betMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
-        <input id="betValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
-        <button type="button" id="betPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+    <section class="wheel-stage">
+      <div class="wheel-pointer" aria-hidden="true"></div>
+      <div class="wheel-rim">
+        <div id="wheel" class="wheel"></div>
+        <div class="wheel-hub">SPIN</div>
       </div>
-      <span class="bet-unit">шансов</span>
+
+      <div id="resultBadge" class="result-badge hidden"></div>
+    </section>
+
+    <div class="wheel-side">
+      <section class="control-panel">
+        <div class="bet-control">
+          <span class="bet-label">Ставка</span>
+          <div class="bet-stepper">
+            <button type="button" id="betMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
+            <input id="betValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
+            <button type="button" id="betPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+          </div>
+          <span class="bet-unit">шансов</span>
+        </div>
+
+        <button id="spinBtn" class="btn btn-spin">
+          <span class="btn-spin-text">Крутить</span>
+          <span class="btn-spin-cost" id="spinCost">−5 шансов</span>
+        </button>
+
+        <p id="spinError" class="spin-error hidden"></p>
+      </section>
+
+      <section class="legend">
+        <p class="legend-title">Секции колеса</p>
+        <ul class="legend-list" id="legendList"></ul>
+      </section>
+
+      <section class="legend">
+        <p class="legend-title">Последние игры</p>
+        <ul id="wheelRecentGamesList" class="recent-games-list">
+          <li class="history-empty">Загрузка…</li>
+        </ul>
+      </section>
     </div>
 
-    <button id="spinBtn" class="btn btn-spin">
-      <span class="btn-spin-text">Крутить</span>
-      <span class="btn-spin-cost" id="spinCost">−5 шансов</span>
-    </button>
-
-    <p id="spinError" class="spin-error hidden"></p>
-  </section>
-
-  <section class="legend">
-    <p class="legend-title">Секции колеса</p>
-    <ul class="legend-list" id="legendList"></ul>
-  </section>
-
+  </div>
 </main>
 
 <!-- ЭКРАН САМОЛЁТИКА -->
