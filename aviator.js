@@ -235,6 +235,12 @@
         stopPolling();
         const data = await AppState.api("/api/aviator/cashout", { method: "POST", auth: true });
         AppState.setBalance(data.new_balance);
+        // Табло держало последнее локально анимированное значение — пока
+        // запрос шёл до сервера, реальный множитель успел чуть подрасти.
+        // Показываем именно то число, по которому реально начислили выигрыш,
+        // а не «замороженный» локальный кадр — иначе цифра на табло и в
+        // сообщении разъезжаются.
+        els.multiplier.textContent = `${data.multiplier.toFixed(2)}x`;
         showError(`Забрали ${data.payout} при ${data.multiplier.toFixed(2)}x`);
         roundStatus = "idle";
         els.status.textContent = "Ставьте снова, когда будете готовы.";
