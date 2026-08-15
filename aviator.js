@@ -4,12 +4,6 @@
   // Ждём, пока app.js создаст window.AppState (порядок подключения
   // скриптов в index.html: config.js -> app.js -> aviator.js).
   const AppState = window.AppState;
-  const AVI_BASE = window.AVIATOR_API_BASE.replace(/\/$/, "");
-
-  const supabaseClient = window.supabase.createClient(
-    window.SUPABASE_URL,
-    window.SUPABASE_ANON_KEY
-  );
 
   const els = {
     canvas: document.getElementById("aviatorCanvas"),
@@ -27,19 +21,16 @@
 
   const ctx = els.canvas.getContext("2d");
   const MIN_BET = 1, BET_STEP = 1, MAX_BET = 500;
+  const GROWTH_RATE = 0.16;   // должно совпадать с api_server.py
+  const POLL_MS = 700;        // редкая сверка с сервером — растёт мультипликатор локально, по времени
   let bet = 5;
 
-  let roundId = null;
-  let roundStatus = "waiting";   // waiting | flying | crashed
-  let myBetPlaced = false;
-  let myBetCashedOut = false;
+  let roundStatus = "idle";   // idle | flying | crashed
+  let flyingStartedAt = null; // performance.now() в момент старта полёта
+  let localAnimHandle = null;
+  let pollHandle = null;
 
   const history = []; // точки графика [{t, mult}]
-  let flyingStartedAt = null;
-  let lastCrashPoint = null;
-
-  let betsChannel = null;
-  const playersInRound = new Map(); // user_id -> {username, bet, status, cashout_multiplier}
 
   // ---------- canvas ----------
 
@@ -86,121 +77,97 @@
     ctx.stroke();
   }
 
-  // ---------- realtime: рост коэффициента (broadcast, не таблица) ----------
+  // ---------- локальная анимация роста коэффициента (mult = exp(RATE*t)) ----------
+  // Сервер лишь изредка подтверждает статус (poll) и решает, где реально
+  // проходит точка краша — она секретна и известна только ему.
 
-  const liveChannel = supabaseClient.channel("aviator:live");
-  liveChannel
-    .on("broadcast", { event: "tick" }, ({ payload }) => handleEngineEvent(payload))
-    .subscribe();
-
-  function handleEngineEvent(payload) {
-    if (payload.type === "waiting") {
-      resetRoundUI();
-      roundId = payload.round_id;
-      roundStatus = "waiting";
-      els.status.textContent = `Приём ставок… ${payload.seconds}с`;
-      subscribeToRoundBets(roundId);
-    } else if (payload.type === "flying_start") {
-      roundStatus = "flying";
-      flyingStartedAt = performance.now();
-      history.length = 0;
-      history.push({ t: 0, mult: 1 });
-      els.status.textContent = "Полёт!";
-      updateActionButton();
-    } else if (payload.type === "tick") {
-      roundStatus = "flying";
-      const t = (performance.now() - flyingStartedAt) / 1000;
-      history.push({ t, mult: payload.multiplier });
-      els.multiplier.textContent = `${payload.multiplier.toFixed(2)}x`;
+  function startLocalAnimation() {
+    stopLocalAnimation();
+    function frame() {
+      if (roundStatus !== "flying" || flyingStartedAt === null) return;
+      const elapsed = (performance.now() - flyingStartedAt) / 1000;
+      const mult = Math.exp(GROWTH_RATE * elapsed);
+      els.multiplier.textContent = `${mult.toFixed(2)}x`;
       els.multiplier.classList.remove("is-crashed");
-      drawGraph(payload.multiplier, false);
-    } else if (payload.type === "crashed") {
-      roundStatus = "crashed";
-      lastCrashPoint = payload.crash_point;
-      els.multiplier.textContent = `${payload.crash_point.toFixed(2)}x`;
-      els.multiplier.classList.add("is-crashed");
-      els.status.textContent = "Разбился! Новый раунд скоро…";
-      drawGraph(payload.crash_point, true);
+      history.push({ t: elapsed, mult });
+      if (history.length > 400) history.shift();
+      drawGraph(mult, false);
       updateActionButton();
-      if (myBetPlaced && !myBetCashedOut) {
-        showError("Не успели — ставка сгорела");
-      }
+      localAnimHandle = requestAnimationFrame(frame);
+    }
+    localAnimHandle = requestAnimationFrame(frame);
+  }
+
+  function stopLocalAnimation() {
+    if (localAnimHandle) {
+      cancelAnimationFrame(localAnimHandle);
+      localAnimHandle = null;
     }
   }
 
-  function resetRoundUI() {
-    myBetPlaced = false;
-    myBetCashedOut = false;
-    els.multiplier.classList.remove("is-crashed");
-    els.multiplier.textContent = "1.00x";
-    hideError();
-    playersInRound.clear();
-    renderPlayersList();
-    if (betsChannel) {
-      supabaseClient.removeChannel(betsChannel);
-      betsChannel = null;
+  function startPolling() {
+    stopPolling();
+    pollHandle = setInterval(async () => {
+      if (roundStatus !== "flying") return;
+      try {
+        const state = await AppState.api("/api/aviator/state", { auth: true });
+        if (!state.has_round) {
+          // сервер решил, что полёт уже разбился (ленивое завершение по времени) —
+          // локально мы это ещё не знали, отдельного push-уведомления нет
+          handleCrash();
+        }
+      } catch (_) {
+        // сеть моргнула — не страшно, попробуем на следующем тике
+      }
+    }, POLL_MS);
+  }
+
+  function stopPolling() {
+    if (pollHandle) {
+      clearInterval(pollHandle);
+      pollHandle = null;
     }
+  }
+
+  function handleCrash() {
+    stopLocalAnimation();
+    stopPolling();
+    roundStatus = "crashed";
+    els.multiplier.classList.add("is-crashed");
+    els.status.textContent = "Разбился! Ставьте снова.";
+    showError("Не успели — ставка сгорела");
     updateActionButton();
   }
 
-  // ---------- realtime: список игроков раунда (таблица aviator_bets) ----------
-
-  function subscribeToRoundBets(rId) {
-    betsChannel = supabaseClient
-      .channel(`aviator_bets:${rId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "aviator_bets", filter: `round_id=eq.${rId}` },
-        (payload) => {
-          playersInRound.set(payload.new.user_id, payload.new);
-          renderPlayersList();
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "aviator_bets", filter: `round_id=eq.${rId}` },
-        (payload) => {
-          playersInRound.set(payload.new.user_id, payload.new);
-          renderPlayersList();
-          if (payload.new.user_id === AppState.telegramId && payload.new.status === "cashed_out") {
-            myBetCashedOut = true;
-            AppState.setBalance(currentBalanceGuess(payload.new));
-            updateActionButton();
-          }
-        }
-      )
-      .subscribe();
+  function resetRoundUI() {
+    stopLocalAnimation();
+    stopPolling();
+    roundStatus = "idle";
+    flyingStartedAt = null;
+    history.length = 0;
+    els.multiplier.classList.remove("is-crashed");
+    els.multiplier.textContent = "1.00x";
+    els.status.textContent = "Ставьте, когда будете готовы.";
+    hideError();
+    renderOwnStatus();
+    updateActionButton();
   }
 
-  function currentBalanceGuess(betRow) {
-    // Баланс окончательно подтянется при следующем /api/me, но для
-    // мгновенной обратной связи прибавляем payout сразу на клиенте.
-    const shown = Number(document.getElementById("balanceValue").textContent) || 0;
-    return shown + betRow.payout;
-  }
+  // ---------- статус собственной ставки (раунды личные — общего списка игроков нет) ----------
 
-  function renderPlayersList() {
+  function renderOwnStatus() {
     els.playersList.innerHTML = "";
-    if (!playersInRound.size) {
-      els.playersList.innerHTML = `<li class="history-empty">Пока никто не поставил.</li>`;
-      return;
+    const li = document.createElement("li");
+    if (roundStatus === "idle") {
+      li.className = "history-empty";
+      li.textContent = "Ваш полёт начнётся сразу после ставки.";
+    } else if (roundStatus === "flying") {
+      li.className = "pending";
+      li.textContent = `В полёте — ставка ${bet}`;
+    } else if (roundStatus === "crashed") {
+      li.textContent = "Разбился — ставка сгорела";
     }
-    [...playersInRound.values()]
-      .sort((a, b) => b.bet - a.bet)
-      .forEach((p) => {
-        const li = document.createElement("li");
-        const name = p.username || String(p.user_id);
-        if (p.status === "cashed_out") {
-          li.className = "cashed-out";
-          li.innerHTML = `<span>${name}</span><span>+${p.payout} (${Number(p.cashout_multiplier).toFixed(2)}x)</span>`;
-        } else if (p.status === "lost") {
-          li.innerHTML = `<span>${name}</span><span>−${p.bet}</span>`;
-        } else {
-          li.className = "pending";
-          li.innerHTML = `<span>${name}</span><span>ставка ${p.bet}</span>`;
-        }
-        els.playersList.appendChild(li);
-      });
+    els.playersList.appendChild(li);
   }
 
   // ---------- ставка / кэшаут ----------
@@ -209,30 +176,25 @@
     els.actionBtn.classList.remove("is-cashout");
     els.actionBtn.disabled = false;
 
-    if (roundStatus === "waiting" && !myBetPlaced) {
+    if (roundStatus === "idle" || roundStatus === "crashed") {
       els.actionText.textContent = "Поставить";
       els.actionCost.textContent = `−${bet} шансов`;
-    } else if (roundStatus === "waiting" && myBetPlaced) {
-      els.actionText.textContent = "Ставка принята";
-      els.actionCost.textContent = "Ждём старта…";
-      els.actionBtn.disabled = true;
-    } else if (roundStatus === "flying" && myBetPlaced && !myBetCashedOut) {
+    } else if (roundStatus === "flying") {
       els.actionBtn.classList.add("is-cashout");
       els.actionText.textContent = "Забрать";
       els.actionCost.textContent = els.multiplier.textContent;
-    } else {
-      els.actionText.textContent = roundStatus === "flying" ? "Ставки закрыты" : "Ждите новый раунд";
-      els.actionCost.textContent = "";
-      els.actionBtn.disabled = true;
     }
+    renderOwnStatus();
   }
 
   els.betMinus.addEventListener("click", () => {
+    if (roundStatus === "flying") return;
     bet = Math.max(MIN_BET, bet - BET_STEP);
     els.betValue.textContent = bet;
     updateActionButton();
   });
   els.betPlus.addEventListener("click", () => {
+    if (roundStatus === "flying") return;
     bet = Math.min(MAX_BET, bet + BET_STEP);
     els.betValue.textContent = bet;
     updateActionButton();
@@ -242,17 +204,36 @@
     hideError();
     els.actionBtn.disabled = true;
     try {
-      if (roundStatus === "waiting" && !myBetPlaced) {
-        const data = await AppState.api("/aviator/bet", { method: "POST", auth: true, body: { bet }, base: AVI_BASE });
-        myBetPlaced = true;
+      if (roundStatus === "idle" || roundStatus === "crashed") {
+        const data = await AppState.api("/api/aviator/bet", { method: "POST", auth: true, body: { bet } });
+        roundStatus = "flying";
+        flyingStartedAt = performance.now();
+        history.length = 0;
+        history.push({ t: 0, mult: 1 });
+        els.status.textContent = "Полёт!";
+        els.multiplier.textContent = "1.00x";
+        els.multiplier.classList.remove("is-crashed");
         AppState.setBalance(data.new_balance);
-      } else if (roundStatus === "flying" && myBetPlaced && !myBetCashedOut) {
-        const data = await AppState.api("/aviator/cashout", { method: "POST", auth: true, base: AVI_BASE });
-        myBetCashedOut = true;
+        startLocalAnimation();
+        startPolling();
+      } else if (roundStatus === "flying") {
+        stopLocalAnimation();
+        stopPolling();
+        const data = await AppState.api("/api/aviator/cashout", { method: "POST", auth: true });
         AppState.setBalance(data.new_balance);
+        showError(`Забрали ${data.payout} при ${data.multiplier.toFixed(2)}x`);
+        roundStatus = "idle";
+        els.status.textContent = "Ставьте снова, когда будете готовы.";
       }
-    } catch (err) {
-      showError(err.message);
+    } catch (e) {
+      showError(e.message);
+      // если кэшаут не прошёл (например, уже разбился) — сверим реальный статус с сервером
+      if (roundStatus === "flying") {
+        try {
+          const state = await AppState.api("/api/aviator/state", { auth: true });
+          if (!state.has_round) handleCrash();
+        } catch (_) { /* ignore */ }
+      }
     } finally {
       updateActionButton();
     }
@@ -272,18 +253,27 @@
     resizeCanvas();
     els.betValue.textContent = bet;
     try {
-      const state = await AppState.api("/aviator/state", { base: AVI_BASE });
-      roundId = state.round_id;
-      roundStatus = state.status;
-      if (state.status === "flying") {
+      const state = await AppState.api("/api/aviator/state", { auth: true });
+      if (state.has_round && state.status === "flying") {
+        roundStatus = "flying";
+        bet = state.bet;
+        els.betValue.textContent = bet;
+        // Восстанавливаем локальный старт полёта из текущего множителя,
+        // чтобы анимация продолжилась с правильного места после reload:
+        // mult = exp(RATE*t) -> t = ln(mult)/RATE
+        const elapsedGuess = Math.log(state.multiplier) / GROWTH_RATE;
+        flyingStartedAt = performance.now() - elapsedGuess * 1000;
+        history.length = 0;
         els.status.textContent = "Полёт!";
         els.multiplier.textContent = `${state.multiplier.toFixed(2)}x`;
+        startLocalAnimation();
+        startPolling();
       } else {
-        els.status.textContent = "Ожидание ставок…";
+        resetRoundUI();
       }
       updateActionButton();
     } catch (_) {
-      els.status.textContent = "Не удалось подключиться к раунду";
+      els.status.textContent = "Не удалось подключиться";
     }
   }
 
