@@ -798,7 +798,14 @@ async def aviator_bet(
         "round_id": str(round_id),
         "bet_id": str(bet_id),
         "bet": body.bet,
-        "new_balance": new_balance
+        "new_balance": new_balance,
+        # раунд общий — к моменту, когда ответ дойдёт до клиента, самолётик
+        # мог уже какое-то время лететь (другой игрок стартовал раньше,
+        # либо просто сетевая задержка). Отдаём реальный множитель на
+        # момент ответа, чтобы фронт синхронизировал локальный таймер
+        # так же, как он это делает в onEnter().
+        "multiplier": avi_current_multiplier(started_flying_at, crash_point),
+        "started_flying_at": started_flying_at.timestamp(),
     }
 
 
