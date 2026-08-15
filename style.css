@@ -27,15 +27,32 @@ html, body {
 
 body {
   background-color: var(--bg);
-  background-image:
-    radial-gradient(circle at 15% 0%, rgba(123,97,255,0.24), transparent 42%),
-    radial-gradient(circle at 88% 6%, rgba(255,200,87,0.16), transparent 40%),
-    radial-gradient(circle at 8% 88%, rgba(51,214,159,0.12), transparent 42%),
-    radial-gradient(circle at 92% 92%, rgba(123,97,255,0.14), transparent 40%),
-    repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 64px);
-  background-attachment: fixed, fixed, fixed, fixed, fixed;
-  background-size: 100vw 100vh, 100vw 100vh, 100vw 100vh, 100vw 100vh, auto;
   padding-bottom: 78px; /* место под нижнюю навигацию */
+  position: relative;
+}
+
+/*
+  Фон — отдельный position:fixed слой, а не background-attachment:fixed
+  на body. background-attachment:fixed привязывается к вьюпорту, но
+  background-size в vw/vh считается по canvas страницы и при зуме/скролле
+  на длинных страницах фон банально "заканчивается" и ниже видно плоский
+  var(--bg) — это и был баг с обрывающимся градиентом. Фиксированный
+  элемент во весь экран такой проблемы не имеет в принципе.
+*/
+.bg-decor {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(circle at 15% 0%, rgba(123,97,255,0.28), transparent 42%),
+    radial-gradient(circle at 88% 6%, rgba(255,200,87,0.18), transparent 40%),
+    radial-gradient(circle at 8% 88%, rgba(51,214,159,0.14), transparent 42%),
+    radial-gradient(circle at 92% 92%, rgba(123,97,255,0.16), transparent 40%),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 64px);
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
 .hidden { display: none !important; }
@@ -74,38 +91,57 @@ body {
   font-weight: 900;
   font-size: clamp(56px, 16vw, 96px);
   line-height: 1;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   user-select: none;
 }
 
 .letters-base,
 .letters-fill {
   display: block;
-  padding: 0 2px;
+  padding: 0;
+  background: none;
 }
 
 .letters-base {
   color: #322e48;
 }
 
+/*
+  Свечение — через text-shadow (повторяет форму самих букв), а НЕ через
+  filter: drop-shadow на весь блок. filter считает размытие по общему
+  прямоугольнику надписи и на паре плотных широких букв "GP" превращается
+  в засвеченный квадрат вокруг текста. text-shadow всегда обтекает контур
+  глифов, поэтому светятся именно буквы, а не рамка вокруг них.
+*/
 .letters-fill {
   position: absolute;
   inset: 0;
-  padding: 0 2px;
+  padding: 0;
   color: var(--gold);
-  text-shadow: 0 0 22px rgba(255, 200, 87, 0.55);
+  text-shadow:
+    0 0 8px rgba(255, 200, 87, 0.9),
+    0 0 22px rgba(255, 200, 87, 0.5);
   clip-path: inset(100% 0 0 0);
-  transition: filter 0.3s ease;
+  background: none;
 }
 
 .preloader-letters.is-filled .letters-fill {
-  animation: preloader-pulse 0.6s ease;
+  animation: preloader-pulse 0.7s ease;
 }
 
 @keyframes preloader-pulse {
-  0% { filter: drop-shadow(0 0 0 rgba(255, 200, 87, 0)); transform: scale(1); }
-  40% { filter: drop-shadow(0 0 26px rgba(255, 200, 87, 0.9)); transform: scale(1.06); }
-  100% { filter: drop-shadow(0 0 0 rgba(255, 200, 87, 0)); transform: scale(1); }
+  0% {
+    text-shadow: 0 0 8px rgba(255, 200, 87, 0.9), 0 0 22px rgba(255, 200, 87, 0.5);
+    transform: scale(1);
+  }
+  40% {
+    text-shadow: 0 0 14px rgba(255, 200, 87, 1), 0 0 44px rgba(255, 200, 87, 0.85);
+    transform: scale(1.05);
+  }
+  100% {
+    text-shadow: 0 0 8px rgba(255, 200, 87, 0.9), 0 0 22px rgba(255, 200, 87, 0.5);
+    transform: scale(1);
+  }
 }
 
 /* ---------- Topbar ---------- */
@@ -836,14 +872,54 @@ body {
   align-items: center;
 }
 
+.aviator-layout {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: center;
+}
+
+.aviator-side {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: center;
+}
+
 .aviator-stage {
   position: relative;
   width: 100%;
-  height: 280px;
-  border-radius: 20px;
+  height: 320px;
+  border-radius: 24px;
   overflow: hidden;
-  background: linear-gradient(160deg, #1a1730, #100d1e);
+  background:
+    radial-gradient(ellipse 90% 70% at 20% 100%, rgba(123,97,255,0.20), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 0%, rgba(255,200,87,0.14), transparent 60%),
+    linear-gradient(165deg, #1c1833 0%, #14111f 55%, #0e0c17 100%);
   border: 1px solid var(--panel-line);
+  box-shadow:
+    0 30px 70px -30px rgba(0,0,0,0.75),
+    inset 0 0 0 1px rgba(255,255,255,0.03);
+}
+
+/* Мелкая звёздная пыль + едва заметная сетка высоты — придаёт серьёзности "приборной панели" */
+.aviator-stage-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.9;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 20%, rgba(255,255,255,0.55), transparent 60%),
+    radial-gradient(1.5px 1.5px at 32% 12%, rgba(255,255,255,0.4), transparent 60%),
+    radial-gradient(1px 1px at 55% 30%, rgba(255,255,255,0.5), transparent 60%),
+    radial-gradient(1.5px 1.5px at 75% 15%, rgba(255,255,255,0.35), transparent 60%),
+    radial-gradient(1px 1px at 90% 35%, rgba(255,255,255,0.45), transparent 60%),
+    radial-gradient(1.5px 1.5px at 22% 45%, rgba(255,255,255,0.3), transparent 60%),
+    radial-gradient(1px 1px at 68% 55%, rgba(255,255,255,0.3), transparent 60%),
+    repeating-linear-gradient(to top, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, transparent 1px, transparent 20%);
 }
 
 .aviator-canvas {
@@ -851,33 +927,131 @@ body {
   inset: 0;
   width: 100%;
   height: 100%;
+  z-index: 1;
+}
+
+.aviator-plane {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  height: 34px;
+  z-index: 2;
+  transform: translate(-50%, -50%) rotate(-25deg);
+  filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 10px rgba(255,200,87,0.55));
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.aviator-plane svg { display: block; width: 100%; height: 100%; }
+.aviator-plane.is-crashed { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 10px rgba(255,92,119,0.6)); }
+.aviator-plane.is-hidden { opacity: 0; }
+
+.aviator-readout {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  z-index: 3;
+  pointer-events: none;
+  padding: 12px 18px;
+  border-radius: 16px;
+  background: rgba(10,9,16,0.45);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.aviator-readout-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 2px;
 }
 
 .aviator-multiplier {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
   font-family: var(--font-display);
   font-weight: 900;
-  font-size: 44px;
+  font-size: 40px;
+  line-height: 1.05;
   color: var(--gold);
-  text-shadow: 0 0 26px rgba(255,200,87,0.5);
-  z-index: 2;
-  pointer-events: none;
+  text-shadow: 0 0 26px rgba(255,200,87,0.45);
 }
 
 .aviator-multiplier.is-crashed { color: var(--red); text-shadow: 0 0 26px rgba(255,92,119,0.5); }
 
 .aviator-status {
   position: absolute;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 16px;
+  left: 20px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(10,9,16,0.45);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,0.08);
   font-size: 12.5px;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  z-index: 2;
+}
+
+.aviator-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  box-shadow: 0 0 0 0 rgba(255,255,255,0);
+}
+
+.aviator-screen.is-flying .aviator-status::before {
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(51,214,159,0.18);
+  animation: aviator-pulse-dot 1.1s ease-in-out infinite;
+}
+
+.aviator-screen.is-crashed .aviator-status::before {
+  background: var(--red);
+  box-shadow: 0 0 0 4px rgba(255,92,119,0.18);
+}
+
+@keyframes aviator-pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(51,214,159,0.18); }
+  50% { box-shadow: 0 0 0 7px rgba(51,214,159,0.05); }
+}
+
+@media (min-width: 900px) {
+  .aviator-screen { max-width: 1040px; padding-top: 32px; }
+
+  .aviator-layout {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 32px;
+  }
+
+  .aviator-stage {
+    flex: 1 1 640px;
+    height: 480px;
+    border-radius: 28px;
+  }
+
+  .aviator-multiplier { font-size: 58px; }
+  .aviator-readout { padding: 16px 22px; top: 24px; left: 24px; }
+  .aviator-status { bottom: 22px; left: 24px; padding: 9px 16px; font-size: 13px; }
+
+  .aviator-side {
+    flex: 0 0 340px;
+    width: 340px;
+    gap: 22px;
+  }
+
+  .aviator-side .control-panel,
+  .aviator-side .legend {
+    max-width: none;
+  }
 }
 
 /* ---------- Профиль ---------- */
