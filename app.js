@@ -279,10 +279,16 @@
   }
 
   function updateBetUI() {
-    els.betValue.textContent = bet;
+    els.betValue.value = bet;
     els.spinCost.textContent = `−${bet} шансов`;
     els.betMinus.disabled = bet <= minBet;
     els.betPlus.disabled = bet >= maxBet;
+  }
+
+  function clampBet(value) {
+    const n = Math.floor(Number(value));
+    if (!Number.isFinite(n)) return bet;
+    return Math.min(maxBet, Math.max(minBet, n));
   }
 
   els.betMinus.addEventListener("click", () => {
@@ -294,12 +300,29 @@
     updateBetUI();
   });
 
+  els.betValue.addEventListener("input", () => {
+    // Не даём вводить ничего, кроме цифр, пока пользователь печатает.
+    els.betValue.value = els.betValue.value.replace(/[^0-9]/g, "");
+  });
+  els.betValue.addEventListener("change", () => {
+    bet = clampBet(els.betValue.value);
+    updateBetUI();
+  });
+  els.betValue.addEventListener("blur", () => {
+    bet = clampBet(els.betValue.value);
+    updateBetUI();
+  });
+  els.betValue.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") els.betValue.blur();
+  });
+
   els.spinBtn.addEventListener("click", async () => {
     if (spinning) return;
     els.spinError.classList.add("hidden");
     els.resultBadge.classList.add("hidden");
     spinning = true;
     els.spinBtn.disabled = true;
+    els.betValue.disabled = true;
 
     try {
       const data = await api("/api/spin", { method: "POST", auth: true, body: { bet } });
@@ -309,6 +332,7 @@
       els.spinError.classList.remove("hidden");
       spinning = false;
       els.spinBtn.disabled = false;
+      els.betValue.disabled = false;
     }
   });
 
@@ -329,6 +353,7 @@
     window.setTimeout(() => {
       spinning = false;
       els.spinBtn.disabled = false;
+      els.betValue.disabled = false;
       onDone();
     }, 4700);
   }
