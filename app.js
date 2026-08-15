@@ -1,483 +1,353 @@
 (function () {
   "use strict";
 
-  const API_BASE = window.API_BASE.replace(/\/$/, "");
-  const TOKEN_KEY = "gc_token";
-
-  const SEGMENT_COLORS = {
-    "x0": "#ff5c77",
-    "x1": "#4b4570",
-    "x0.5": "#ff8fa3",
-    "x1.5": "#8fe3c4",
-    "x2": "#33d69f",
-    "🎁 +1": "#7b61ff",
-    "x3": "#ffc857",
-    "x5": "#ff9f1c",
-  };
-
-  const GAME_NAMES = { wheel: "Колесо Фортуны", aviator: "Самолётик" };
+  // Ждём, пока app.js создаст window.AppState (порядок подключения
+  // скриптов в index.html: config.js -> app.js -> aviator.js).
+  const AppState = window.AppState;
 
   const els = {
-    preloader: document.getElementById("preloader"),
-    lettersWrap: document.querySelector(".preloader-letters"),
-    lettersFill: document.getElementById("lettersFill"),
-
-    backBtn: document.getElementById("backBtn"),
-    bottomNav: document.getElementById("bottomNav"),
-    balanceChip: document.getElementById("balanceChip"),
-    balanceValue: document.getElementById("balanceValue"),
-
-    loginScreen: document.getElementById("loginScreen"),
-    mainMenuScreen: document.getElementById("mainMenuScreen"),
-    wheelScreen: document.getElementById("wheelScreen"),
-    aviatorScreen: document.getElementById("aviatorScreen"),
-    profileScreen: document.getElementById("profileScreen"),
-    historyScreen: document.getElementById("historyScreen"),
-
-    idForm: document.getElementById("idForm"),
-    telegramId: document.getElementById("telegramId"),
-    sendCodeBtn: document.getElementById("sendCodeBtn"),
-
-    codeForm: document.getElementById("codeForm"),
-    codeInput: document.getElementById("codeInput"),
-    verifyBtn: document.getElementById("verifyBtn"),
-    resendBtn: document.getElementById("resendBtn"),
-    loginError: document.getElementById("loginError"),
-
-    wheel: document.getElementById("wheel"),
-    resultBadge: document.getElementById("resultBadge"),
-    legendList: document.getElementById("legendList"),
-
-    betMinus: document.getElementById("betMinus"),
-    betPlus: document.getElementById("betPlus"),
-    betValue: document.getElementById("betValue"),
-    spinBtn: document.getElementById("spinBtn"),
-    spinCost: document.getElementById("spinCost"),
-    spinError: document.getElementById("spinError"),
-
-    profileName: document.getElementById("profileName"),
-    profileId: document.getElementById("profileId"),
-    profileBalance: document.getElementById("profileBalance"),
-    openHistoryBtn: document.getElementById("openHistoryBtn"),
-    logoutBtn: document.getElementById("logoutBtn"),
-
-    historyTableBody: document.getElementById("historyTableBody"),
+    screen: document.getElementById("aviatorScreen"),
+    canvas: document.getElementById("aviatorCanvas"),
+    plane: document.getElementById("aviatorPlane"),
+    multiplier: document.getElementById("aviatorMultiplier"),
+    status: document.getElementById("aviatorStatus"),
+    betMinus: document.getElementById("aviBetMinus"),
+    betPlus: document.getElementById("aviBetPlus"),
+    betValue: document.getElementById("aviBetValue"),
+    actionBtn: document.getElementById("aviActionBtn"),
+    actionText: document.getElementById("aviActionText"),
+    actionCost: document.getElementById("aviActionCost"),
+    error: document.getElementById("aviError"),
+    playersList: document.getElementById("aviPlayersList"),
   };
 
-  // Общее состояние приложения — доступно и aviator.js через window.AppState
-  window.AppState = {
-    telegramId: null,
-    username: null,
-    getToken: () => localStorage.getItem(TOKEN_KEY),
-    setBalance: setBalance,
-  };
-
-  let pendingTelegramId = null;
-  let sections = [];
-  let minBet = 5, betStep = 5, maxBet = 100;
+  const ctx = els.canvas.getContext("2d");
+  const MIN_BET = 1, BET_STEP = 1, MAX_BET = 500;
+  const GROWTH_RATE = 0.16;   // должно совпадать с api_server.py
+  const POLL_MS = 700;        // редкая сверка с сервером — растёт мультипликатор локально, по времени
   let bet = 5;
-  let currentDeg = 0;
-  let spinning = false;
 
-  // ---------- роутер экранов ----------
+  let roundStatus = "idle";   // idle | flying | crashed
+  let flyingStartedAt = null; // performance.now() в момент старта полёта
+  let localAnimHandle = null;
+  let pollHandle = null;
 
-  const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
-  const screenStack = ["mainMenuScreen"];
+  const history = []; // точки графика [{t, mult}]
 
-  function navigateTo(screenId, { push = true } = {}) {
-    [
-      "loginScreen", "mainMenuScreen", "wheelScreen",
-      "aviatorScreen", "profileScreen", "historyScreen",
-    ].forEach((id) => document.getElementById(id).classList.add("hidden"));
+  // ---------- canvas ----------
 
-    document.getElementById(screenId).classList.remove("hidden");
-
-    // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
-    // история) — кнопка "назад" видна в самих играх (колесо, самолётик).
-    const isSubScreen = ["wheelScreen", "aviatorScreen", "historyScreen"].includes(screenId);
-    els.bottomNav.classList.toggle("hidden", isSubScreen);
-    els.backBtn.classList.toggle("hidden", !isSubScreen);
-
-    document.querySelectorAll(".nav-btn").forEach((btn) => {
-      btn.classList.toggle("is-active", btn.dataset.target === screenId);
-    });
-
-    if (push) {
-      if (!isSubScreen) {
-        screenStack.length = 0;
-      }
-      screenStack.push(screenId);
-    }
-
-    if (screenId === "aviatorScreen" && window.AviatorGame) {
-      window.AviatorGame.onEnter();
-    }
-    if (screenId === "historyScreen") {
-      loadGamesHistory();
-    }
+  function resizeCanvas() {
+    const rect = els.canvas.parentElement.getBoundingClientRect();
+    els.canvas.width = rect.width * devicePixelRatio;
+    els.canvas.height = rect.height * devicePixelRatio;
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   }
+  window.addEventListener("resize", resizeCanvas);
 
-  els.backBtn.addEventListener("click", () => {
-    screenStack.pop();
-    const prev = screenStack[screenStack.length - 1] || "mainMenuScreen";
-    navigateTo(prev, { push: false });
-  });
+  function drawGraph(currentMult, crashed) {
+    const w = els.canvas.clientWidth, h = els.canvas.clientHeight;
+    ctx.clearRect(0, 0, w, h);
 
-  document.querySelectorAll(".game-card, .nav-btn").forEach((btn) => {
-    btn.addEventListener("click", () => navigateTo(btn.dataset.target));
-  });
-
-  // ---------- login flow ----------
-
-  els.idForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    hideError();
-    const raw = els.telegramId.value.trim();
-    if (!/^\d+$/.test(raw)) {
-      showError("Telegram ID должен состоять только из цифр");
+    if (history.length < 2) {
+      els.plane.classList.add("is-hidden");
       return;
     }
-    pendingTelegramId = Number(raw);
-    setBusy(els.sendCodeBtn, true, "Отправляем...");
-    try {
-      await api("/api/auth/request-code", { method: "POST", body: { telegram_id: pendingTelegramId } });
-      els.idForm.classList.add("hidden");
-      els.codeForm.classList.remove("hidden");
-      els.codeInput.focus();
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      setBusy(els.sendCodeBtn, false, "Отправить код");
-    }
-  });
 
-  els.resendBtn.addEventListener("click", async () => {
+    const maxT = history[history.length - 1].t || 1;
+    const maxMult = Math.max(2, currentMult * 1.15);
+
+    const toX = (t) => (t / maxT) * (w * 0.82) + w * 0.06;
+    const toY = (m) => h - ((m - 1) / (maxMult - 1)) * (h * 0.78) - h * 0.1;
+
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(1));
+    history.forEach((p) => ctx.lineTo(toX(p.t), toY(p.mult)));
+
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, crashed ? "rgba(255,92,119,0.35)" : "rgba(255,200,87,0.35)");
+    grad.addColorStop(1, "rgba(255,200,87,0)");
+
+    ctx.lineTo(toX(history[history.length - 1].t), h);
+    ctx.lineTo(toX(0), h);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(toX(0), toY(1));
+    history.forEach((p) => ctx.lineTo(toX(p.t), toY(p.mult)));
+    ctx.strokeStyle = crashed ? "#ff5c77" : "#ffc857";
+    ctx.lineWidth = 3;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    // Самолётик едет на самом кончике кривой, развёрнутый по касательной
+    // к последнему участку графика — небольшой штрих, который делает
+    // табло похожим на приборную панель, а не просто линию на графике.
+    const last = history[history.length - 1];
+    const prev = history[history.length - 2] || last;
+    const lastX = toX(last.t), lastY = toY(last.mult);
+    const prevX = toX(prev.t), prevY = toY(prev.mult);
+    const angle = Math.atan2(lastY - prevY, lastX - prevX) * (180 / Math.PI);
+
+    els.plane.style.left = `${lastX}px`;
+    els.plane.style.top = `${lastY}px`;
+    els.plane.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+    els.plane.classList.remove("is-hidden");
+    els.plane.classList.toggle("is-crashed", crashed);
+  }
+
+  // ---------- локальная анимация роста коэффициента (mult = exp(RATE*t)) ----------
+  // Сервер лишь изредка подтверждает статус (poll) и решает, где реально
+  // проходит точка краша — она секретна и известна только ему.
+
+  function startLocalAnimation() {
+    stopLocalAnimation();
+    function frame() {
+      if (roundStatus !== "flying" || flyingStartedAt === null) return;
+      const elapsed = (performance.now() - flyingStartedAt) / 1000;
+      const mult = Math.exp(GROWTH_RATE * elapsed);
+      els.multiplier.textContent = `${mult.toFixed(2)}x`;
+      els.multiplier.classList.remove("is-crashed");
+      history.push({ t: elapsed, mult });
+      if (history.length > 400) history.shift();
+      drawGraph(mult, false);
+      updateActionButton();
+      localAnimHandle = requestAnimationFrame(frame);
+    }
+    localAnimHandle = requestAnimationFrame(frame);
+  }
+
+  function stopLocalAnimation() {
+    if (localAnimHandle) {
+      cancelAnimationFrame(localAnimHandle);
+      localAnimHandle = null;
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    pollHandle = setInterval(async () => {
+      if (roundStatus !== "flying") return;
+      try {
+        const state = await AppState.api("/api/aviator/state", { auth: true });
+        if (!state.has_round) {
+          // сервер решил, что полёт уже разбился (ленивое завершение по времени) —
+          // локально мы это ещё не знали, отдельного push-уведомления нет
+          handleCrash();
+        } else if (typeof state.multiplier === "number") {
+          // подтягиваем локальный таймер к серверному множителю, чтобы
+          // рассинхрон (throttling вкладки, дрейф rAF и т.п.) не копился
+          const elapsedGuess = Math.log(state.multiplier) / GROWTH_RATE;
+          flyingStartedAt = performance.now() - elapsedGuess * 1000;
+        }
+      } catch (_) {
+        // сеть моргнула — не страшно, попробуем на следующем тике
+      }
+    }, POLL_MS);
+  }
+
+  function stopPolling() {
+    if (pollHandle) {
+      clearInterval(pollHandle);
+      pollHandle = null;
+    }
+  }
+
+  function handleCrash() {
+    stopLocalAnimation();
+    stopPolling();
+    roundStatus = "crashed";
+    els.multiplier.classList.add("is-crashed");
+    els.status.textContent = "Разбился! Ставьте снова.";
+    els.screen.classList.remove("is-flying");
+    els.screen.classList.add("is-crashed");
+    els.plane.classList.add("is-crashed");
+    showError("Не успели — ставка сгорела");
+    updateActionButton();
+  }
+
+  function resetRoundUI() {
+    stopLocalAnimation();
+    stopPolling();
+    roundStatus = "idle";
+    flyingStartedAt = null;
+    history.length = 0;
+    els.multiplier.classList.remove("is-crashed");
+    els.multiplier.textContent = "1.00x";
+    els.status.textContent = "Ставьте, когда будете готовы.";
+    els.screen.classList.remove("is-flying", "is-crashed");
+    els.plane.classList.add("is-hidden");
     hideError();
-    setBusy(els.resendBtn, true, "Отправляем...");
-    try {
-      await api("/api/auth/request-code", { method: "POST", body: { telegram_id: pendingTelegramId } });
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      setBusy(els.resendBtn, false, "Отправить код ещё раз");
+    renderOwnStatus();
+    updateActionButton();
+  }
+
+  // ---------- статус собственной ставки (раунды личные — общего списка игроков нет) ----------
+
+  function renderOwnStatus() {
+    els.playersList.innerHTML = "";
+    const li = document.createElement("li");
+    if (roundStatus === "idle") {
+      li.className = "history-empty";
+      li.textContent = "Ваш полёт начнётся сразу после ставки.";
+    } else if (roundStatus === "flying") {
+      li.className = "pending";
+      li.textContent = `В полёте — ставка ${bet}`;
+    } else if (roundStatus === "crashed") {
+      li.textContent = "Разбился — ставка сгорела";
     }
-  });
+    els.playersList.appendChild(li);
+  }
 
-  els.codeForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    hideError();
-    const code = els.codeInput.value.trim();
-    if (!code) return;
-    setBusy(els.verifyBtn, true, "Проверяем...");
-    try {
-      const data = await api("/api/auth/verify", {
-        method: "POST",
-        body: { telegram_id: pendingTelegramId, code },
-      });
-      localStorage.setItem(TOKEN_KEY, data.token);
-      await enterApp();
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      setBusy(els.verifyBtn, false, "Войти");
+  // ---------- ставка / кэшаут ----------
+
+  function updateActionButton() {
+    els.actionBtn.classList.remove("is-cashout");
+    els.actionBtn.disabled = false;
+    els.betValue.disabled = roundStatus === "flying";
+
+    if (roundStatus === "idle" || roundStatus === "crashed") {
+      els.actionText.textContent = "Поставить";
+      els.actionCost.textContent = `−${bet} шансов`;
+    } else if (roundStatus === "flying") {
+      els.actionBtn.classList.add("is-cashout");
+      els.actionText.textContent = "Забрать";
+      els.actionCost.textContent = els.multiplier.textContent;
     }
-  });
-
-  els.logoutBtn.addEventListener("click", () => {
-    localStorage.removeItem(TOKEN_KEY);
-    window.location.reload();
-  });
-
-  function showError(msg) {
-    els.loginError.textContent = msg;
-    els.loginError.classList.remove("hidden");
-  }
-  function hideError() {
-    els.loginError.classList.add("hidden");
-  }
-  function setBusy(btn, busy, label) {
-    btn.disabled = busy;
-    btn.textContent = label;
-  }
-
-  // ---------- app screen ----------
-
-  async function enterApp() {
-    const me = await api("/api/me", { auth: true });
-    sections = me.sections;
-    minBet = me.min_bet;
-    betStep = me.bet_step;
-    maxBet = me.max_bet;
-    bet = minBet;
-
-    window.AppState.telegramId = me.telegram_id;
-    window.AppState.username = me.username;
-
-    els.loginScreen.classList.add("hidden");
-    els.balanceChip.classList.remove("hidden");
-    setBalance(me.balance);
-
-    buildWheel();
-    buildLegend();
-    updateBetUI();
-
-    els.profileName.textContent = me.username || String(me.telegram_id);
-    els.profileId.textContent = `ID: ${me.telegram_id}`;
-    els.profileBalance.textContent = me.balance;
-
-    navigateTo("mainMenuScreen");
-  }
-
-  function setBalance(v) {
-    els.balanceValue.textContent = v;
-    els.profileBalance.textContent = v;
-  }
-
-  function buildWheel() {
-    const n = sections.length;
-    const step = 360 / n;
-    const stops = sections
-      .map((s, i) => {
-        const color = SEGMENT_COLORS[s.label] || "#4b4570";
-        return `${color} ${i * step}deg ${(i + 1) * step}deg`;
-      })
-      .join(", ");
-    els.wheel.style.background = `conic-gradient(${stops})`;
-
-    els.wheel.querySelectorAll(".wheel-seg-label").forEach((el) => el.remove());
-
-    const radiusPx = els.wheel.clientWidth * 0.31 || 105;
-    sections.forEach((s, i) => {
-      const center = i * step + step / 2;
-      const rad = (center * Math.PI) / 180;
-      const x = radiusPx * Math.sin(rad);
-      const y = -radiusPx * Math.cos(rad);
-      const label = document.createElement("div");
-      label.className = "wheel-seg-label";
-      label.textContent = s.label;
-      label.style.left = `calc(50% + ${x}px)`;
-      label.style.top = `calc(50% + ${y}px)`;
-      label.style.transform = `translate(-50%, -50%) rotate(${center}deg)`;
-      els.wheel.appendChild(label);
-    });
-  }
-
-  function buildLegend() {
-    els.legendList.innerHTML = "";
-    sections.forEach((s) => {
-      const li = document.createElement("li");
-      const dot = document.createElement("span");
-      dot.className = "legend-dot";
-      dot.style.background = SEGMENT_COLORS[s.label] || "#4b4570";
-      const chance = (s.weight / 10).toFixed(1).replace(/\.0$/, "");
-      const text = document.createElement("span");
-      text.textContent = `${s.label} — ${chance}%`;
-      li.appendChild(dot);
-      li.appendChild(text);
-      els.legendList.appendChild(li);
-    });
-  }
-
-  function updateBetUI() {
-    els.betValue.value = bet;
-    els.spinCost.textContent = `−${bet} шансов`;
-    els.betMinus.disabled = bet <= minBet;
-    els.betPlus.disabled = bet >= maxBet;
+    renderOwnStatus();
   }
 
   function clampBet(value) {
     const n = Math.floor(Number(value));
     if (!Number.isFinite(n)) return bet;
-    return Math.min(maxBet, Math.max(minBet, n));
+    return Math.min(MAX_BET, Math.max(MIN_BET, n));
   }
 
   els.betMinus.addEventListener("click", () => {
-    bet = Math.max(minBet, bet - betStep);
-    updateBetUI();
+    if (roundStatus === "flying") return;
+    bet = Math.max(MIN_BET, bet - BET_STEP);
+    els.betValue.value = bet;
+    updateActionButton();
   });
   els.betPlus.addEventListener("click", () => {
-    bet = Math.min(maxBet, bet + betStep);
-    updateBetUI();
+    if (roundStatus === "flying") return;
+    bet = Math.min(MAX_BET, bet + BET_STEP);
+    els.betValue.value = bet;
+    updateActionButton();
   });
 
   els.betValue.addEventListener("input", () => {
-    // Не даём вводить ничего, кроме цифр, пока пользователь печатает.
     els.betValue.value = els.betValue.value.replace(/[^0-9]/g, "");
   });
   els.betValue.addEventListener("change", () => {
     bet = clampBet(els.betValue.value);
-    updateBetUI();
+    els.betValue.value = bet;
+    updateActionButton();
   });
   els.betValue.addEventListener("blur", () => {
     bet = clampBet(els.betValue.value);
-    updateBetUI();
+    els.betValue.value = bet;
+    updateActionButton();
   });
   els.betValue.addEventListener("keydown", (e) => {
     if (e.key === "Enter") els.betValue.blur();
   });
 
-  els.spinBtn.addEventListener("click", async () => {
-    if (spinning) return;
-    els.spinError.classList.add("hidden");
-    els.resultBadge.classList.add("hidden");
-    spinning = true;
-    els.spinBtn.disabled = true;
-    els.betValue.disabled = true;
-
+  els.actionBtn.addEventListener("click", async () => {
+    hideError();
+    els.actionBtn.disabled = true;
     try {
-      const data = await api("/api/spin", { method: "POST", auth: true, body: { bet } });
-      animateTo(data.section_index, () => showResult(data));
-    } catch (err) {
-      els.spinError.textContent = err.message;
-      els.spinError.classList.remove("hidden");
-      spinning = false;
-      els.spinBtn.disabled = false;
-      els.betValue.disabled = false;
+      if (roundStatus === "idle" || roundStatus === "crashed") {
+        const data = await AppState.api("/api/aviator/bet", { method: "POST", auth: true, body: { bet } });
+        roundStatus = "flying";
+        // Каждая ставка теперь всегда открывает свой собственный, новый
+        // раунд на сервере (started_flying_at = now()) — значит честный
+        // старт всегда 1.00x. Сбрасываем локально сразу, не дожидаясь
+        // и не подстраиваясь под multiplier из ответа: так табло гарантированно
+        // показывает 1.00x в момент старта, а не «доедет» до какого-то
+        // промежуточного числа из-за сетевой задержки.
+        history.length = 0;
+        history.push({ t: 0, mult: 1 });
+        flyingStartedAt = performance.now();
+        els.status.textContent = "Полёт!";
+        els.multiplier.textContent = "1.00x";
+        els.multiplier.classList.remove("is-crashed");
+        els.screen.classList.remove("is-crashed");
+        els.screen.classList.add("is-flying");
+        AppState.setBalance(data.new_balance);
+        startLocalAnimation();
+        startPolling();
+      } else if (roundStatus === "flying") {
+        stopLocalAnimation();
+        stopPolling();
+        const data = await AppState.api("/api/aviator/cashout", { method: "POST", auth: true });
+        AppState.setBalance(data.new_balance);
+        // Табло держало последнее локально анимированное значение — пока
+        // запрос шёл до сервера, реальный множитель успел чуть подрасти.
+        // Показываем именно то число, по которому реально начислили выигрыш,
+        // а не «замороженный» локальный кадр — иначе цифра на табло и в
+        // сообщении разъезжаются.
+        els.multiplier.textContent = `${data.multiplier.toFixed(2)}x`;
+        showError(`Забрали ${data.payout} при ${data.multiplier.toFixed(2)}x`);
+        roundStatus = "idle";
+        els.status.textContent = "Ставьте снова, когда будете готовы.";
+        els.screen.classList.remove("is-flying");
+        els.plane.classList.add("is-hidden");
+      }
+    } catch (e) {
+      showError(e.message);
+      // если кэшаут не прошёл (например, уже разбился) — сверим реальный статус с сервером
+      if (roundStatus === "flying") {
+        try {
+          const state = await AppState.api("/api/aviator/state", { auth: true });
+          if (!state.has_round) handleCrash();
+        } catch (_) { /* ignore */ }
+      }
+    } finally {
+      updateActionButton();
     }
   });
 
-  function animateTo(index, onDone) {
-    const n = sections.length;
-    const step = 360 / n;
-    const center = index * step + step / 2;
-    const jitter = (Math.random() - 0.5) * (step * 0.5);
-    const targetMod = ((360 - center - jitter) % 360 + 360) % 360;
-
-    const extraSpins = 5;
-    let newDeg = currentDeg - (currentDeg % 360) + extraSpins * 360 + targetMod;
-    if (newDeg <= currentDeg) newDeg += 360;
-
-    currentDeg = newDeg;
-    els.wheel.style.transform = `rotate(${currentDeg}deg)`;
-
-    window.setTimeout(() => {
-      spinning = false;
-      els.spinBtn.disabled = false;
-      els.betValue.disabled = false;
-      onDone();
-    }, 4700);
+  function showError(msg) {
+    els.error.textContent = msg;
+    els.error.classList.remove("hidden");
+  }
+  function hideError() {
+    els.error.classList.add("hidden");
   }
 
-  function showResult(data) {
-    setBalance(data.new_balance);
-    const net = data.payout - data.bet;
-    els.resultBadge.classList.remove("hidden", "win", "lose", "flat");
-    if (net > 0) {
-      els.resultBadge.classList.add("win");
-      els.resultBadge.textContent = `${data.label} · +${net} шансов`;
-    } else if (net < 0) {
-      els.resultBadge.classList.add("lose");
-      els.resultBadge.textContent = `${data.label} · −${Math.abs(net)} шансов`;
-    } else {
-      els.resultBadge.classList.add("flat");
-      els.resultBadge.textContent = `${data.label} · ставка возвращена`;
-    }
-  }
+  // ---------- вызывается при входе на экран самолётика ----------
 
-  // ---------- история игр (профиль) ----------
-
-  async function loadGamesHistory() {
-    els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Загрузка…</td></tr>`;
+  async function onEnter() {
+    resizeCanvas();
+    els.betValue.value = bet;
     try {
-      const data = await api("/api/games/history", { auth: true });
-      if (!data.rounds.length) {
-        els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Пока пусто — сыграйте первую игру.</td></tr>`;
-        return;
+      const state = await AppState.api("/api/aviator/state", { auth: true });
+      if (state.has_round && state.status === "flying") {
+        roundStatus = "flying";
+        bet = state.bet;
+        els.betValue.value = bet;
+        // Восстанавливаем локальный старт полёта из текущего множителя,
+        // чтобы анимация продолжилась с правильного места после reload:
+        // mult = exp(RATE*t) -> t = ln(mult)/RATE
+        const elapsedGuess = Math.log(state.multiplier) / GROWTH_RATE;
+        flyingStartedAt = performance.now() - elapsedGuess * 1000;
+        history.length = 0;
+        els.status.textContent = "Полёт!";
+        els.multiplier.textContent = `${state.multiplier.toFixed(2)}x`;
+        els.screen.classList.remove("is-crashed");
+        els.screen.classList.add("is-flying");
+        startLocalAnimation();
+        startPolling();
+      } else {
+        resetRoundUI();
       }
-      els.historyTableBody.innerHTML = "";
-      data.rounds.forEach((r) => {
-        const tr = document.createElement("tr");
-        const changeClass = r.balance_change > 0 ? "change-positive" : r.balance_change < 0 ? "change-negative" : "";
-        const sign = r.balance_change > 0 ? "+" : "";
-        const shortId = r.game_round_id.slice(0, 8);
-        tr.innerHTML = `
-          <td>${GAME_NAMES[r.game_type] || r.game_type}</td>
-          <td class="game-id-cell" title="${r.game_round_id}">${shortId}…</td>
-          <td>${r.bet}</td>
-          <td>${r.result_label || "—"}</td>
-          <td class="${changeClass}">${sign}${r.balance_change}</td>
-        `;
-        els.historyTableBody.appendChild(tr);
-      });
-    } catch (err) {
-      els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Не удалось загрузить историю</td></tr>`;
+      updateActionButton();
+    } catch (_) {
+      els.status.textContent = "Не удалось подключиться";
     }
   }
 
-  els.openHistoryBtn.addEventListener("click", () => navigateTo("historyScreen"));
-
-  // ---------- API helper (общий, используется и aviator.js) ----------
-
-  async function api(path, { method = "GET", body, auth = false, base = API_BASE } = {}) {
-    const headers = { "Content-Type": "application/json" };
-    if (auth) {
-      const token = localStorage.getItem(TOKEN_KEY);
-      if (!token) throw new Error("Нет сессии");
-      headers["Authorization"] = "Bearer " + token;
-    }
-    const res = await fetch(base + path, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.detail || "Ошибка запроса");
-    }
-    return data;
-  }
-  window.AppState.api = api;
-
-  // ---------- preloader ----------
-
-  function runPreloaderFill(durationMs) {
-    return new Promise((resolve) => {
-      const start = performance.now();
-      function frame(now) {
-        const t = Math.min(1, (now - start) / durationMs);
-        const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        const topInset = (1 - eased) * 100;
-        els.lettersFill.style.clipPath = `inset(${topInset}% 0 0 0)`;
-        if (t < 1) {
-          requestAnimationFrame(frame);
-        } else {
-          els.lettersWrap.classList.add("is-filled");
-          resolve();
-        }
-      }
-      requestAnimationFrame(frame);
-    });
-  }
-
-  function hidePreloader() {
-    els.preloader.classList.add("preloader-out");
-    window.setTimeout(() => els.preloader.remove(), 550);
-  }
-
-  // ---------- boot ----------
-  // Заливка идёт ПАРАЛЛЕЛЬНО с проверкой сессии — пока грузится экран,
-  // мы уже успеваем узнать, залогинен ли человек, и к моменту, когда
-  // прелоадер исчезает, сразу открывается либо меню, либо форма входа
-  // (а не форма входа "по умолчанию" с последующим миганием).
-
-  (async function boot() {
-    const fillDone = runPreloaderFill(1400);
-
-    let loggedIn = false;
-    if (localStorage.getItem(TOKEN_KEY)) {
-      try {
-        await enterApp();
-        loggedIn = true;
-      } catch (_) {
-        localStorage.removeItem(TOKEN_KEY);
-      }
-    }
-
-    if (!loggedIn) {
-      els.loginScreen.classList.remove("hidden");
-    }
-
-    await fillDone;
-    hidePreloader();
-  })();
+  window.AviatorGame = { onEnter };
 })();
