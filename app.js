@@ -15,7 +15,7 @@
     "x5": "#ff9f1c",
   };
 
-  const GAME_NAMES = { wheel: "Колесо Фортуны", aviator: "Самолётик" };
+  const GAME_NAMES = { wheel: "Колесо Фортуны", aviator: "Авиатор" };
 
   const els = {
     preloader: document.getElementById("preloader"),
