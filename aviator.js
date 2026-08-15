@@ -6,7 +6,9 @@
   const AppState = window.AppState;
 
   const els = {
+    screen: document.getElementById("aviatorScreen"),
     canvas: document.getElementById("aviatorCanvas"),
+    plane: document.getElementById("aviatorPlane"),
     multiplier: document.getElementById("aviatorMultiplier"),
     status: document.getElementById("aviatorStatus"),
     betMinus: document.getElementById("aviBetMinus"),
@@ -46,13 +48,16 @@
     const w = els.canvas.clientWidth, h = els.canvas.clientHeight;
     ctx.clearRect(0, 0, w, h);
 
-    if (history.length < 2) return;
+    if (history.length < 2) {
+      els.plane.classList.add("is-hidden");
+      return;
+    }
 
     const maxT = history[history.length - 1].t || 1;
     const maxMult = Math.max(2, currentMult * 1.15);
 
-    const toX = (t) => (t / maxT) * (w * 0.85) + w * 0.05;
-    const toY = (m) => h - ((m - 1) / (maxMult - 1)) * (h * 0.8) - h * 0.08;
+    const toX = (t) => (t / maxT) * (w * 0.82) + w * 0.06;
+    const toY = (m) => h - ((m - 1) / (maxMult - 1)) * (h * 0.78) - h * 0.1;
 
     ctx.beginPath();
     ctx.moveTo(toX(0), toY(1));
@@ -75,6 +80,21 @@
     ctx.lineWidth = 3;
     ctx.lineJoin = "round";
     ctx.stroke();
+
+    // Самолётик едет на самом кончике кривой, развёрнутый по касательной
+    // к последнему участку графика — небольшой штрих, который делает
+    // табло похожим на приборную панель, а не просто линию на графике.
+    const last = history[history.length - 1];
+    const prev = history[history.length - 2] || last;
+    const lastX = toX(last.t), lastY = toY(last.mult);
+    const prevX = toX(prev.t), prevY = toY(prev.mult);
+    const angle = Math.atan2(lastY - prevY, lastX - prevX) * (180 / Math.PI);
+
+    els.plane.style.left = `${lastX}px`;
+    els.plane.style.top = `${lastY}px`;
+    els.plane.style.transform = `translate(-50%, -50%) rotate(${angle}deg)`;
+    els.plane.classList.remove("is-hidden");
+    els.plane.classList.toggle("is-crashed", crashed);
   }
 
   // ---------- локальная анимация роста коэффициента (mult = exp(RATE*t)) ----------
@@ -140,6 +160,9 @@
     roundStatus = "crashed";
     els.multiplier.classList.add("is-crashed");
     els.status.textContent = "Разбился! Ставьте снова.";
+    els.screen.classList.remove("is-flying");
+    els.screen.classList.add("is-crashed");
+    els.plane.classList.add("is-crashed");
     showError("Не успели — ставка сгорела");
     updateActionButton();
   }
@@ -153,6 +176,8 @@
     els.multiplier.classList.remove("is-crashed");
     els.multiplier.textContent = "1.00x";
     els.status.textContent = "Ставьте, когда будете готовы.";
+    els.screen.classList.remove("is-flying", "is-crashed");
+    els.plane.classList.add("is-hidden");
     hideError();
     renderOwnStatus();
     updateActionButton();
@@ -248,6 +273,8 @@
         els.status.textContent = "Полёт!";
         els.multiplier.textContent = "1.00x";
         els.multiplier.classList.remove("is-crashed");
+        els.screen.classList.remove("is-crashed");
+        els.screen.classList.add("is-flying");
         AppState.setBalance(data.new_balance);
         startLocalAnimation();
         startPolling();
@@ -265,6 +292,8 @@
         showError(`Забрали ${data.payout} при ${data.multiplier.toFixed(2)}x`);
         roundStatus = "idle";
         els.status.textContent = "Ставьте снова, когда будете готовы.";
+        els.screen.classList.remove("is-flying");
+        els.plane.classList.add("is-hidden");
       }
     } catch (e) {
       showError(e.message);
@@ -307,6 +336,8 @@
         history.length = 0;
         els.status.textContent = "Полёт!";
         els.multiplier.textContent = `${state.multiplier.toFixed(2)}x`;
+        els.screen.classList.remove("is-crashed");
+        els.screen.classList.add("is-flying");
         startLocalAnimation();
         startPolling();
       } else {
