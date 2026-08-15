@@ -637,8 +637,25 @@ async def aviator_bet(
                 )
 
         # --------------------------------------------------
-        # 2. Ищем текущий общий раунд самолётика
+        # 2. Раунд приватный — новая ставка всегда начинает свой
+        #    собственный полёт с 1.00x, а не подсаживается к чужому/
+        #    предыдущему раунду, который мог ещё лететь после кэшаута.
         # --------------------------------------------------
+
+        round_id = str(uuid.uuid4())
+        crash_point = avi_roll_crash_point()
+
+        cur.execute("""
+            INSERT INTO aviator_rounds
+                (
+                    round_id,
+                    status,
+                    crash_point,
+                    started_flying_at
+                )
+            VALUES
+                (%s, 'flying', %s, now())
+        """, (round_id, crash_point))
 
         cur.execute("""
             SELECT
@@ -647,89 +664,10 @@ async def aviator_bet(
                 started_flying_at,
                 crash_point
             FROM aviator_rounds
-            WHERE status = 'flying'
-            ORDER BY started_flying_at DESC
-            LIMIT 1
-        """)
+            WHERE round_id = %s
+        """, (round_id,))
 
         round_row = cur.fetchone()
-
-        # --------------------------------------------------
-        # 3. Если общего раунда нет — создаём его
-        # --------------------------------------------------
-
-        if not round_row:
-            round_id = str(uuid.uuid4())
-            crash_point = avi_roll_crash_point()
-
-            cur.execute("""
-                INSERT INTO aviator_rounds
-                    (
-                        round_id,
-                        status,
-                        crash_point,
-                        started_flying_at
-                    )
-                VALUES
-                    (%s, 'flying', %s, now())
-            """, (round_id, crash_point))
-
-            cur.execute("""
-                SELECT
-                    round_id,
-                    status,
-                    started_flying_at,
-                    crash_point
-                FROM aviator_rounds
-                WHERE round_id = %s
-            """, (round_id,))
-
-            round_row = cur.fetchone()
-
-        else:
-            round_id, round_status, started_flying_at, crash_point = round_row
-
-            # Если существующий раунд уже должен был разбиться,
-            # закрываем его и создаём новый.
-            if started_flying_at and crash_point is not None:
-                elapsed = time.time() - started_flying_at.timestamp()
-
-                if elapsed >= avi_crash_after_seconds(crash_point):
-                    cur.execute("""
-                        UPDATE aviator_rounds
-                        SET status = 'crashed',
-                            crashed_at = now()
-                        WHERE round_id = %s
-                          AND status = 'flying'
-                    """, (round_id,))
-
-                    round_id = str(uuid.uuid4())
-                    crash_point = avi_roll_crash_point()
-
-                    cur.execute("""
-                        INSERT INTO aviator_rounds
-                            (
-                                round_id,
-                                status,
-                                crash_point,
-                                started_flying_at
-                            )
-                        VALUES
-                            (%s, 'flying', %s, now())
-                    """, (round_id, crash_point))
-
-                    cur.execute("""
-                        SELECT
-                            round_id,
-                            status,
-                            started_flying_at,
-                            crash_point
-                        FROM aviator_rounds
-                        WHERE round_id = %s
-                    """, (round_id,))
-
-                    round_row = cur.fetchone()
-
         round_id, round_status, started_flying_at, crash_point = round_row
 
         # --------------------------------------------------
@@ -876,6 +814,14 @@ async def aviator_state(token: str = Depends(bearer_token)):
             started_flying_at,
             crash_point
         ),
+        # Сколько секунд раунд уже летит на момент этого запроса. Если это
+        # заметно больше, чем реально мог пройти в текущей сессии клиента
+        # (пара секунд после клика "Поставить"), — это, скорее всего,
+        # "зомби"-раунд, оставшийся от предыдущей ставки, чей кэшаут не
+        # дошёл/не был подтверждён (обрыв связи, закрытая вкладка и т.п.),
+        # а не только что начатый полёт. Фронт использует это, чтобы не
+        # молча продолжать такой раунд, а явно предупредить игрока.
+        "flying_seconds": round(time.time() - started_flying_at.timestamp(), 2),
     }
 
 
@@ -993,11 +939,67 @@ async def aviator_cashout(token: str = Depends(bearer_token)):
         ))
 
         if not cur.rowcount:
+            # --------------------------------------------------
+            # ИДЕМПОТЕНТНОСТЬ: сюда мы попадаем, если между "проверили
+            # status='pending' выше" и этим UPDATE кто-то (например,
+            # повторный запрос того же клиента после обрыва сети —
+            # именно так раунд мог выглядеть "не остановленным", хотя
+            # игрок реально нажал "Забрать") уже успел закрыть эту
+            # ставку. Раньше здесь падала ошибка "Ставка уже
+            # обработана", и клиент, получивший её на ПЕРВОЙ попытке
+            # кэшаута (ответ потерялся по сети, а сам запрос на сервер
+            # дошёл и применился), думал, что кэшаут не прошёл — хотя
+            # на сервере ставка уже была закрыта. Раунд при этом
+            # оставался живым в глазах игрока, и следующий заход в игру
+            # "воскрешал" его с уже большим множителем.
+            #
+            # Теперь вместо ошибки просто отдаём тот же результат,
+            # которым ставка была закрыта на самом деле — повторный
+            # (или запоздавший) вызов кэшаута безопасен и всегда
+            # возвращает актуальный, а не потерянный ответ.
+            cur.execute("""
+                SELECT status, cashout_multiplier, payout
+                FROM aviator_bets
+                WHERE bet_id = %s
+            """, (bet_id,))
+            existing = cur.fetchone()
+
+            if existing and existing[0] == "cashed_out":
+                _, existing_mult, existing_payout = existing
+                cur.execute(
+                    "SELECT balance FROM user_chances WHERE user_id = %s",
+                    (user_id,)
+                )
+                bal_row = cur.fetchone()
+                cur.close()
+                return {
+                    "ok": True,
+                    "round_id": str(round_id),
+                    "bet_id": str(bet_id),
+                    "multiplier": existing_mult,
+                    "payout": existing_payout,
+                    "new_balance": bal_row[0] if bal_row else None,
+                    "replayed": True,
+                }
+
             cur.close()
             raise HTTPException(
                 status_code=400,
                 detail="Ставка уже обработана"
             )
+
+        # Помечаем и сам раунд как завершённый кэшаутом — раньше
+        # aviator_rounds так и оставался status='flying' в БД навсегда
+        # (пусть и не переиспользовался благодаря фильтру по
+        # aviator_bets.status='pending', но это мусор в данных и риск
+        # при любых будущих запросах/миграциях, которые опираются на
+        # aviator_rounds.status напрямую).
+        cur.execute("""
+            UPDATE aviator_rounds
+            SET status = 'cashed_out'
+            WHERE round_id = %s
+              AND status = 'flying'
+        """, (round_id,))
 
         # --------------------------------------------------
         # 5. Возвращаем выигрыш
