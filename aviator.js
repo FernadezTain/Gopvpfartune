@@ -303,18 +303,32 @@
       if (roundStatus === "idle" || roundStatus === "crashed") {
         const data = await AppState.api("/api/aviator/bet", { method: "POST", auth: true, body: { bet } });
         roundStatus = "flying";
-        // Каждая ставка теперь всегда открывает свой собственный, новый
-        // раунд на сервере (started_flying_at = now()) — значит честный
-        // старт всегда 1.00x. Сбрасываем локально сразу, не дожидаясь
-        // и не подстраиваясь под multiplier из ответа: так табло гарантированно
-        // показывает 1.00x в момент старта, а не «доедет» до какого-то
-        // промежуточного числа из-за сетевой задержки.
+        // ВАЖНО: раньше здесь принудительно ставили flyingStartedAt =
+        // performance.now(), чтобы табло гарантированно показывало 1.00x
+        // в момент старта. Проблема: если сам POST /bet шёл с большой
+        // задержкой (нестабильная сеть до Deploy-f), на сервере раунд уже
+        // стартовал РАНЬШЕ (started_flying_at = now() при INSERT), а клиент
+        // об этом не знал и считал t=0 «прямо сейчас». Первая же сверка
+        // (poll) вскрывала весь этот разрыв разом и резко «доталкивала»
+        // табло вперёд — отсюда жалоба «идёт х1.14 и резко улетает в х10».
+        //
+        // Берём авторитетное время старта с сервера (data.started_flying_at,
+        // unix-эпоха в секундах) и переводим в шкалу performance.now() через
+        // привязку к Date.now() в момент получения ответа. Табло с первого
+        // кадра показывает честный множитель (может быть чуть выше 1.00x,
+        // если запрос шёл долго — это ожидаемо и не требует резких коррекций
+        // позже).
+        const epochNowMs = Date.now();
+        const perfNowMs = performance.now();
+        flyingStartedAt = perfNowMs - (epochNowMs - data.started_flying_at * 1000);
+        const elapsedNow = Math.max(0, (perfNowMs - flyingStartedAt) / 1000);
+        const multNow = Math.exp(GROWTH_RATE * elapsedNow);
         history.length = 0;
-        history.push({ t: 0, mult: 1 });
-        flyingStartedAt = performance.now();
+        history.push({ t: 0, mult: 1 }); // якорь начала графика
+        history.push({ t: elapsedNow, mult: multNow });
         driftTarget = null; // на всякий случай гасим незавершённую коррекцию прошлого полёта
         els.status.textContent = "Полёт!";
-        els.multiplier.textContent = "1.00x";
+        els.multiplier.textContent = `${multNow.toFixed(2)}x`;
         els.multiplier.classList.remove("is-crashed");
         els.screen.classList.remove("is-crashed");
         els.screen.classList.add("is-flying");
