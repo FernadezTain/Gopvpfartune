@@ -32,11 +32,16 @@ html, body {
   color: var(--text);
   font-family: var(--font-body);
   overscroll-behavior-y: contain;
+  /* Страховка от горизонтального скролла на телефонах — если что-то
+     где-то вылезет за 100vw (сумма паддингов + gap в узком гриде,
+     длинное слово без переноса и т.п.), страница не «поедет» вбок. */
+  overflow-x: hidden;
+  width: 100%;
 }
 
 body {
   background-color: var(--bg);
-  padding-bottom: 78px; /* место под нижнюю навигацию */
+  padding-bottom: calc(78px + env(safe-area-inset-bottom)); /* место под нижнюю навигацию + home indicator */
   position: relative;
 }
 
@@ -145,14 +150,15 @@ input, select, textarea {
 
 .topbar {
   position: sticky;
-  top: 12px;
+  top: calc(12px + env(safe-area-inset-top));
   z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin: 12px 14px 0;
+  margin: calc(12px + env(safe-area-inset-top)) 14px 0;
   padding: 14px 22px;
+  flex-wrap: wrap;
   border-radius: 20px;
   background: rgba(24,21,38,0.82);
   backdrop-filter: blur(20px);
@@ -1439,7 +1445,7 @@ input, select, textarea {
 .screen-anim-left { animation: screen-slide-left-in 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
 
 @media (max-width: 520px) {
-  .topbar { margin: 8px 10px 0; padding: 12px 16px; border-radius: 16px; }
+  .topbar { margin: calc(8px + env(safe-area-inset-top)) 10px 0; padding: 12px 16px; border-radius: 16px; }
   .login-card { padding: 30px 22px; }
   .login-title { font-size: 25px; }
   .game-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1451,6 +1457,49 @@ input, select, textarea {
   .aviator-multiplier { font-size: 32px; }
   .aviator-readout { padding: 9px 14px; top: 12px; left: 14px; }
   .aviator-status { bottom: 12px; left: 14px; padding: 6px 12px; font-size: 11.5px; }
+
+  /* Более крупные зоны нажатия для степпера ставки — 30px было мало
+     для пальца, из-за этого на телефоне легко промахнуться. */
+  .stepper-btn { width: 38px; height: 38px; font-size: 19px; }
+  .bet-control { padding: 8px 14px; gap: 10px; }
+  .bet-stepper { gap: 8px; }
+
+  .menu-screen, .wheel-screen, .aviator-screen, .profile-screen, .history-screen {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .wheel-hub { width: 54px; height: 54px; font-size: 10px; }
+  .wheel-seg-label { font-size: 12.5px; }
+  .result-badge { font-size: 13.5px; padding: 9px 16px; }
+
+  .balance-chip { padding: 7px 12px; gap: 6px; }
+  .balance-value { font-size: 15px; }
+  .brand-text { font-size: 16px; }
+}
+
+/* Совсем узкие экраны (маленькие/бюджетные телефоны, ~360px и уже,
+   и Telegram Mini App в свёрнутом/half-height режиме, где вьюпорт
+   часто оказывается уже, чем кажется). */
+@media (max-width: 380px) {
+  .game-grid { gap: 8px; }
+  .game-card { min-height: 108px; padding: 14px 12px 14px 58px; }
+  .game-card-name { font-size: 13.5px; }
+  .game-card-sub { font-size: 11px; }
+  .game-card-icon-badge { width: 46px; height: 46px; left: -10px; bottom: -10px; border-radius: 14px; }
+  .icon-wheel { width: 22px; height: 22px; }
+  .icon-plane { width: 20px; height: 20px; }
+  .game-card-arrow { display: none; }
+
+  .legend-list { grid-template-columns: 1fr; }
+  .control-panel, .legend { max-width: 100%; }
+
+  .balance-label { display: none; }
+  .brand-text { font-size: 15px; }
+  .topbar { padding: 10px 12px; gap: 8px; }
+
+  .btn-spin { padding: 15px; }
+  .btn-spin-text { font-size: 15.5px; }
 }
 
 /* ---------- Экономия ресурсов на телефонах ---------- */
