@@ -952,6 +952,71 @@ input, select, textarea {
   justify-content: center !important;
 }
 
+/* ---------- Последние игры (всех игроков) ---------- */
+
+.recent-games-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.recent-game-row {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-soft);
+}
+
+.rg-top,
+.rg-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rg-top {
+  margin-bottom: 4px;
+}
+
+.rg-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rg-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.rg-bet {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.rg-result {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.rg-result.change-positive { color: var(--green); }
+.rg-result.change-negative { color: var(--red); }
+.rg-result.change-neutral { color: var(--text-dim); }
+
 /* ---------- Самолётик ---------- */
 
 .aviator-screen {
