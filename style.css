@@ -43,6 +43,65 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
+/* ---------- Preloader ---------- */
+
+.preloader {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #08070c;
+  transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+.preloader.preloader-out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.preloader-letters {
+  position: relative;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(56px, 16vw, 96px);
+  line-height: 1;
+  letter-spacing: 0.06em;
+  user-select: none;
+}
+
+.letters-base,
+.letters-fill {
+  display: block;
+  padding: 0 2px;
+}
+
+.letters-base {
+  color: #322e48;
+}
+
+.letters-fill {
+  position: absolute;
+  inset: 0;
+  padding: 0 2px;
+  color: var(--gold);
+  text-shadow: 0 0 22px rgba(255, 200, 87, 0.55);
+  clip-path: inset(100% 0 0 0);
+  transition: filter 0.3s ease;
+}
+
+.preloader-letters.is-filled .letters-fill {
+  animation: preloader-pulse 0.6s ease;
+}
+
+@keyframes preloader-pulse {
+  0% { filter: drop-shadow(0 0 0 rgba(255, 200, 87, 0)); transform: scale(1); }
+  40% { filter: drop-shadow(0 0 26px rgba(255, 200, 87, 0.9)); transform: scale(1.06); }
+  100% { filter: drop-shadow(0 0 0 rgba(255, 200, 87, 0)); transform: scale(1); }
+}
+
 /* ---------- Topbar ---------- */
 
 .topbar {
