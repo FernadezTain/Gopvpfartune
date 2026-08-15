@@ -414,8 +414,8 @@
       } else if (roundStatus === "flying") {
         stopLocalAnimation();
         stopPolling();
-        const data = await AppState.api("/api/aviator/cashout", { method: "POST", auth: true });
-        AppState.setBalance(data.new_balance);
+        const data = await cashoutWithRetry();
+        if (typeof data.new_balance === "number") AppState.setBalance(data.new_balance);
         // Табло держало последнее локально анимированное значение — пока
         // запрос шёл до сервера, реальный множитель успел чуть подрасти.
         // Показываем именно то число, по которому реально начислили выигрыш,
@@ -443,6 +443,43 @@
     }
   });
 
+  // ---------- надёжный кэшаут ----------
+  //
+  // Раньше клик "Забрать" делал ОДИН запрос через AppState.api(). Если
+  // сеть моргала именно в этот момент (запрос ушёл, но ответ не
+  // вернулся — или наоборот, вообще не ушёл), игрок видел ошибку или
+  // зависшую кнопку, решал "ну и ладно, видимо разбился", а на сервере
+  // ставка оставалась 'pending', и раунд продолжал лететь. Потом,
+  // зайдя в игру заново, игрок получал этот раунд обратно — но уже с
+  // огромным множителем, как будто он не останавливался.
+  //
+  // Теперь: при обрыве СЕТИ (запрос не дошёл до сервера или ответ не
+  // вернулся) — повторяем запрос до 3 раз. Это безопасно благодаря
+  // идемпотентности кэшаута на сервере (см. api_server.py): повторный
+  // вызов вернёт тот же самый результат, а не проведёт кэшаут дважды.
+  // Если сервер ответил ЧЕТКО (например "уже разбился") — это
+  // окончательный ответ, повторять не нужно.
+  async function cashoutWithRetry(maxAttempts = 3) {
+    let lastErr = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const data = await AppState.api("/api/aviator/cashout", { method: "POST", auth: true });
+        return data;
+      } catch (e) {
+        lastErr = e;
+        // Ошибки вида "Самолётик уже разбился" / "Активного полёта нет" /
+        // "Нет токена" — это осмысленный ответ сервера (или локальная
+        // проверка), а не обрыв связи. Ретраить их бессмысленно и вредно
+        // (можно зациклиться на настоящем отказе) — сразу выходим.
+        const definitive = /разбился|Активного полёта нет|Нет токена|Сессия недействительна/i.test(e.message || "");
+        if (definitive || attempt === maxAttempts) throw e;
+        // Небольшая пауза перед повтором (сеть могла ненадолго пропасть).
+        await new Promise((r) => setTimeout(r, 350 * attempt));
+      }
+    }
+    throw lastErr;
+  }
+
   function showError(msg) {
     els.error.textContent = msg;
     els.error.classList.remove("hidden");
@@ -452,6 +489,15 @@
   }
 
   // ---------- вызывается при входе на экран самолётика ----------
+
+  // Сколько секунд полёта можно списать на "обычный реконнект" (открыли
+  // приложение через пару секунд после того, как сами же поставили) —
+  // до этого порога подхватываем раунд молча, как и раньше. Если раунд
+  // летит дольше — это, вероятнее всего, "зомби" от ставки, чей кэшаут
+  // не подтвердился на сервере (см. cashoutWithRetry и комментарий в
+  // api_server.py), и мы явно предупреждаем игрока, а не тихо продолжаем
+  // с уже выросшим множителем, как будто ничего не произошло.
+  const STALE_ROUND_SECONDS = 4;
 
   async function onEnter() {
     resizeCanvas();
@@ -475,10 +521,24 @@
         flyingStartedAt = serverSampleTime - elapsedGuess * 1000;
         driftTarget = null; // стартуем без незавершённой коррекции
         history.length = 0;
-        els.status.textContent = "Полёт!";
         els.multiplier.textContent = `${state.multiplier.toFixed(2)}x`;
         els.screen.classList.remove("is-crashed");
         els.screen.classList.add("is-flying");
+
+        const isStale = typeof state.flying_seconds === "number" && state.flying_seconds > STALE_ROUND_SECONDS;
+        if (isStale) {
+          // Не выдумываем нового поведения игры (раунд по-прежнему честно
+          // долетит своим ходом) — просто громко сообщаем, что это старый,
+          // незавершённый полёт, а не только что начатый, чтобы игрок не
+          // тратил время, разглядывая табло, думая, что оно только
+          // стартовало с 1.00x.
+          els.status.textContent = `Продолжаем незавершённый полёт (уже в воздухе ${Math.round(state.flying_seconds)}с) — заберите выигрыш`;
+          showError("Обнаружена незакрытая предыдущая ставка — заберите её, пока не разбилась");
+        } else {
+          els.status.textContent = "Полёт!";
+          hideError();
+        }
+
         startLocalAnimation();
         startPolling();
       } else {
