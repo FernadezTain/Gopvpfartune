@@ -24,7 +24,6 @@
 
     backBtn: document.getElementById("backBtn"),
     bottomNav: document.getElementById("bottomNav"),
-    navBall: document.getElementById("navBall"),
     balanceChip: document.getElementById("balanceChip"),
     balanceValue: document.getElementById("balanceValue"),
 
@@ -48,6 +47,7 @@
     wheel: document.getElementById("wheel"),
     resultBadge: document.getElementById("resultBadge"),
     legendList: document.getElementById("legendList"),
+    wheelRecentGamesList: document.getElementById("wheelRecentGamesList"),
 
     betMinus: document.getElementById("betMinus"),
     betPlus: document.getElementById("betPlus"),
@@ -85,38 +85,6 @@
   const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
   const screenStack = ["mainMenuScreen"];
   let lastTopLevelScreen = "mainMenuScreen";
-  let ballRotation = 0;
-  let ballPositioned = false;
-
-  // Двигает шарик под доком к активной кнопке и слегка "прокатывает" его —
-  // угол поворота растёт пропорционально пройденному расстоянию, поэтому
-  // движение туда и обратно выглядит как реальное качение, а не скольжение.
-  function updateNavBall() {
-    if (!els.navBall || els.bottomNav.classList.contains("hidden")) return;
-    const activeBtn = document.querySelector(".nav-btn.is-active");
-    if (!activeBtn) return;
-
-    const navRect = els.bottomNav.getBoundingClientRect();
-    const btnRect = activeBtn.getBoundingClientRect();
-    const centerX = btnRect.left + btnRect.width / 2 - navRect.left;
-    const prevLeft = ballPositioned ? parseFloat(els.navBall.style.left || centerX) : centerX;
-    const distance = centerX - prevLeft;
-
-    if (!ballPositioned) {
-      els.navBall.style.transition = "none";
-    }
-    ballRotation += distance * 2.4;
-    els.navBall.style.left = `${centerX}px`;
-    els.navBall.style.transform = `translateX(-50%) rotate(${ballRotation}deg)`;
-
-    if (!ballPositioned) {
-      void els.navBall.offsetWidth; // применяем позицию без анимации первого кадра
-      els.navBall.style.transition = "";
-      ballPositioned = true;
-    }
-  }
-
-  window.addEventListener("resize", updateNavBall);
 
   // Проигрывает анимацию входа для экрана: слайд вправо/влево при
   // переключении между "Главная" и "Профиль" в нижнем меню, иначе — плавное появление.
@@ -167,7 +135,6 @@
     });
 
     playScreenAnim(screenEl, screenId, isSubScreen);
-    requestAnimationFrame(updateNavBall);
 
     if (push) {
       if (!isSubScreen) {
@@ -181,6 +148,9 @@
       // Экран уже видим (снят .hidden), поэтому canvas корректно измеряет
       // себя внутри onEnter — грузим данные раунда, пока сверху ещё виден лоадер.
       dataReady = window.AviatorGame.onEnter();
+    }
+    if (screenId === "wheelScreen") {
+      dataReady = window.AppState.fetchRecentGames(els.wheelRecentGamesList, "wheel");
     }
     if (screenId === "historyScreen") {
       loadGamesHistory();
@@ -447,6 +417,7 @@
       els.resultBadge.classList.add("flat");
       els.resultBadge.textContent = `${data.label} · ставка возвращена`;
     }
+    window.AppState.fetchRecentGames(els.wheelRecentGamesList, "wheel");
   }
 
   // ---------- история игр (профиль) ----------
@@ -502,6 +473,71 @@
     return data;
   }
   window.AppState.api = api;
+
+  // ---------- "последние игры" — общая лента, используется и колесом,
+  // и самолётиком (aviator.js), каждый экран запрашивает свой game_type,
+  // поэтому в авиаторе больше не мелькают спины колеса и наоборот. ----------
+
+  const GAME_LABELS = { wheel: "Колесо", aviator: "Авиатор" };
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  function formatGameTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString("ru-RU", {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  function renderRecentGames(listEl, games) {
+    listEl.innerHTML = "";
+    if (!games || games.length === 0) {
+      const li = document.createElement("li");
+      li.className = "history-empty";
+      li.textContent = "Игр пока не было.";
+      listEl.appendChild(li);
+      return;
+    }
+    for (const g of games) {
+      const li = document.createElement("li");
+      li.className = "recent-game-row";
+      const changeClass = g.balance_change > 0 ? "change-positive"
+        : g.balance_change < 0 ? "change-negative"
+        : "change-neutral";
+      const changeText = g.balance_change > 0 ? `+${g.balance_change}` : `${g.balance_change}`;
+      const gameLabel = GAME_LABELS[g.game_type] || g.game_type;
+      li.innerHTML = `
+        <div class="rg-top">
+          <span class="rg-name">${escapeHtml(g.username)}</span>
+          <span class="rg-time">${formatGameTime(g.created_at)}</span>
+        </div>
+        <div class="rg-bottom">
+          <span class="rg-bet">${escapeHtml(gameLabel)} · ставка ${g.bet}</span>
+          <span class="rg-result ${changeClass}">${changeText} (${escapeHtml(g.result_label)})</span>
+        </div>
+      `;
+      listEl.appendChild(li);
+    }
+  }
+
+  // gameType: "wheel" | "aviator" — каждый экран передаёт свой, чтобы
+  // ленты не смешивались.
+  async function fetchRecentGames(listEl, gameType) {
+    try {
+      const data = await api(`/api/games/recent?game_type=${encodeURIComponent(gameType)}`, { auth: true });
+      renderRecentGames(listEl, data.games);
+    } catch (_) {
+      // тихо — вспомогательный блок, не должен ломать саму игру
+    }
+  }
+
+  window.AppState.fetchRecentGames = fetchRecentGames;
 
   // ---------- preloader ----------
 
