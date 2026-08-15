@@ -27,6 +27,29 @@
   const POLL_MS = 700;        // редкая сверка с сервером — растёт мультипликатор локально, по времени
   let bet = 5;
 
+  // Блокировка кнопки "Поставить" на BET_LOCK_MS после конца раунда
+  // (краш или кэшаут) — простая и надёжная альтернатива подгонке таймеров:
+  // просто даём и локальному rAF-таймеру, и 700мс-поллингу время осесть,
+  // прежде чем разрешаем новую ставку. За 10 секунд это гарантированно
+  // произойдёт, даже на плохой сети.
+  const BET_LOCK_MS = 10000;
+  let bettingLockedUntil = 0;   // performance.now(), до которого ставить нельзя
+  let lockCountdownHandle = null;
+
+  function lockBetting(ms) {
+    bettingLockedUntil = performance.now() + ms;
+    clearInterval(lockCountdownHandle);
+    lockCountdownHandle = setInterval(() => {
+      if (performance.now() >= bettingLockedUntil) {
+        clearInterval(lockCountdownHandle);
+        lockCountdownHandle = null;
+        bettingLockedUntil = 0;
+      }
+      updateActionButton();
+    }, 250);
+    updateActionButton();
+  }
+
   let roundStatus = "idle";   // idle | flying | crashed
   let flyingStartedAt = null; // performance.now() в момент старта полёта
   let localAnimHandle = null;
@@ -205,6 +228,7 @@
     els.screen.classList.add("is-crashed");
     els.plane.classList.add("is-crashed");
     showError("Не успели — ставка сгорела");
+    lockBetting(BET_LOCK_MS);
     updateActionButton();
   }
 
@@ -250,8 +274,16 @@
     els.betValue.disabled = roundStatus === "flying";
 
     if (roundStatus === "idle" || roundStatus === "crashed") {
-      els.actionText.textContent = "Поставить";
-      els.actionCost.textContent = `−${bet} шансов`;
+      const msLeft = bettingLockedUntil - performance.now();
+      if (msLeft > 0) {
+        const secsLeft = Math.ceil(msLeft / 1000);
+        els.actionBtn.disabled = true;
+        els.actionText.textContent = `Подождите ${secsLeft}с`;
+        els.actionCost.textContent = "";
+      } else {
+        els.actionText.textContent = "Поставить";
+        els.actionCost.textContent = `−${bet} шансов`;
+      }
     } else if (roundStatus === "flying") {
       els.actionBtn.classList.add("is-cashout");
       els.actionText.textContent = "Забрать";
@@ -301,27 +333,29 @@
     els.actionBtn.disabled = true;
     try {
       if (roundStatus === "idle" || roundStatus === "crashed") {
+        // t0 — момент отправки запроса на СВОИХ часах (performance.now()).
+        const t0 = performance.now();
         const data = await AppState.api("/api/aviator/bet", { method: "POST", auth: true, body: { bet } });
         roundStatus = "flying";
-        // ВАЖНО: раньше здесь принудительно ставили flyingStartedAt =
-        // performance.now(), чтобы табло гарантированно показывало 1.00x
-        // в момент старта. Проблема: если сам POST /bet шёл с большой
-        // задержкой (нестабильная сеть до Deploy-f), на сервере раунд уже
-        // стартовал РАНЬШЕ (started_flying_at = now() при INSERT), а клиент
-        // об этом не знал и считал t=0 «прямо сейчас». Первая же сверка
-        // (poll) вскрывала весь этот разрыв разом и резко «доталкивала»
-        // табло вперёд — отсюда жалоба «идёт х1.14 и резко улетает в х10».
+        // ВАЖНО: раньше пробовали синхронизироваться через абсолютные часы
+        // (Date.now() на клиенте vs data.started_flying_at с сервера).
+        // Это сломалось: если системные часы сервера (Deploy-f, Алматы)
+        // сбиты — а там уже были проблемы с сетью/NTP — разница между
+        // часами клиента и сервера даёт ПОСТОЯННЫЙ сдвиг, из-за которого
+        // каждый новый раунд стартовал с одного и того же завышенного
+        // значения («продолжает от того, где закончил прошлый»).
         //
-        // Берём авторитетное время старта с сервера (data.started_flying_at,
-        // unix-эпоха в секундах) и переводим в шкалу performance.now() через
-        // привязку к Date.now() в момент получения ответа. Табло с первого
-        // кадра показывает честный множитель (может быть чуть выше 1.00x,
-        // если запрос шёл долго — это ожидаемо и не требует резких коррекций
-        // позже).
-        const epochNowMs = Date.now();
-        const perfNowMs = performance.now();
-        flyingStartedAt = perfNowMs - (epochNowMs - data.started_flying_at * 1000);
-        const elapsedNow = Math.max(0, (perfNowMs - flyingStartedAt) / 1000);
+        // Правильно — не трогать абсолютное время вообще. Используем тот
+        // же приём, что и в startPolling()/onEnter(): берём относительный
+        // multiplier с сервера и компенсируем сетевую задержку через RTT/2
+        // на СВОИХ часах (performance.now()) — это не зависит от того,
+        // насколько точны часы сервера, только от симметричности сети.
+        const rtt = performance.now() - t0;
+        const serverSampleTime = t0 + rtt / 2;
+        const elapsedGuess = Math.log(data.multiplier) / GROWTH_RATE;
+        flyingStartedAt = serverSampleTime - elapsedGuess * 1000;
+        const nowPerf = performance.now();
+        const elapsedNow = Math.max(0, (nowPerf - flyingStartedAt) / 1000);
         const multNow = Math.exp(GROWTH_RATE * elapsedNow);
         history.length = 0;
         history.push({ t: 0, mult: 1 }); // якорь начала графика
@@ -348,6 +382,7 @@
         els.multiplier.textContent = `${data.multiplier.toFixed(2)}x`;
         showError(`Забрали ${data.payout} при ${data.multiplier.toFixed(2)}x`);
         roundStatus = "idle";
+        lockBetting(BET_LOCK_MS);
         els.status.textContent = "Ставьте снова, когда будете готовы.";
         els.screen.classList.remove("is-flying");
         els.plane.classList.add("is-hidden");
