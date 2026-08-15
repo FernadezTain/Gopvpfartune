@@ -291,65 +291,14 @@
     updateActionButton();
   }
 
-  // ---------- последние 5 игр (всех игроков) ----------
+  // ---------- последние 5 игр (всех игроков, только Авиатор) ----------
+  //
+  // Рендер вынесен в app.js (window.AppState.fetchRecentGames) и общий
+  // с колесом — здесь просто передаём свой контейнер и game_type, чтобы
+  // в этой ленте показывались только раунды самолётика, а не колеса.
 
-  const RESULT_LABELS = { wheel: "Колесо", aviator: "Авиатор" };
-
-  function formatGameTime(iso) {
-    if (!iso) return "";
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    return d.toLocaleString("ru-RU", {
-      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-    });
-  }
-
-  function renderRecentGames(games) {
-    els.recentGamesList.innerHTML = "";
-    if (!games || games.length === 0) {
-      const li = document.createElement("li");
-      li.className = "history-empty";
-      li.textContent = "Игр пока не было.";
-      els.recentGamesList.appendChild(li);
-      return;
-    }
-    for (const g of games) {
-      const li = document.createElement("li");
-      li.className = "recent-game-row";
-
-      const changeClass = g.balance_change > 0 ? "change-positive"
-        : g.balance_change < 0 ? "change-negative"
-        : "change-neutral";
-      const changeText = g.balance_change > 0 ? `+${g.balance_change}` : `${g.balance_change}`;
-      const gameLabel = RESULT_LABELS[g.game_type] || g.game_type;
-
-      li.innerHTML = `
-        <div class="rg-top">
-          <span class="rg-name">${escapeHtml(g.username)}</span>
-          <span class="rg-time">${formatGameTime(g.created_at)}</span>
-        </div>
-        <div class="rg-bottom">
-          <span class="rg-bet">${escapeHtml(gameLabel)} · ставка ${g.bet}</span>
-          <span class="rg-result ${changeClass}">${changeText} (${escapeHtml(g.result_label)})</span>
-        </div>
-      `;
-      els.recentGamesList.appendChild(li);
-    }
-  }
-
-  function escapeHtml(s) {
-    return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    }[c]));
-  }
-
-  async function fetchRecentGames() {
-    try {
-      const data = await AppState.api("/api/games/recent", { auth: true });
-      renderRecentGames(data.games);
-    } catch (_) {
-      // тихо — это вспомогательный блок, не должен ломать саму игру
-    }
+  function fetchRecentGames() {
+    return AppState.fetchRecentGames(els.recentGamesList, "aviator");
   }
 
   // ---------- ставка / кэшаут ----------
