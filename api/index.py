@@ -369,6 +369,14 @@ async def spin(body: SpinBody, token: str = Depends(bearer_token)):
             INSERT INTO spins (user_id, bet, label, multiplier, payout, balance_after, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (user_id, bet, section["label"], section.get("multiplier"), payout, new_balance, int(time.time())))
+
+        # Дублируем в общую таблицу истории — её читает профиль
+        # (детализация по всем играм: колесо, самолётик и т.д.)
+        cur.execute("""
+            INSERT INTO game_rounds
+                (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
+            VALUES (%s, 'wheel', %s, %s, %s, %s, %s)
+        """, (user_id, bet, section["label"], payout, net, new_balance))
         cur.close()
 
     return {
@@ -379,6 +387,31 @@ async def spin(body: SpinBody, token: str = Depends(bearer_token)):
         "bet": bet,
         "new_balance": new_balance,
     }
+
+
+@app.get("/api/games/history")
+async def games_history(token: str = Depends(bearer_token)):
+    """Единая детализация по ВСЕМ играм (колесо, самолётик, ...) для профиля."""
+    with db() as conn:
+        user = require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT game_round_id, game_type, bet, result_label, payout, balance_change, created_at
+            FROM game_rounds WHERE user_id = %s ORDER BY created_at DESC LIMIT 100
+        """, (user["user_id"],))
+        rows = cur.fetchall()
+        cur.close()
+    return {"rounds": [
+        {
+            "game_round_id": str(r[0]),
+            "game_type": r[1],
+            "bet": r[2],
+            "result_label": r[3],
+            "payout": r[4],
+            "balance_change": r[5],
+            "created_at": r[6],
+        } for r in rows
+    ]}
 
 
 @app.get("/api/health")
