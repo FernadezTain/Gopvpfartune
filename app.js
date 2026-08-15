@@ -24,6 +24,7 @@
 
     backBtn: document.getElementById("backBtn"),
     bottomNav: document.getElementById("bottomNav"),
+    navBall: document.getElementById("navBall"),
     balanceChip: document.getElementById("balanceChip"),
     balanceValue: document.getElementById("balanceValue"),
 
@@ -83,6 +84,57 @@
 
   const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
   const screenStack = ["mainMenuScreen"];
+  let lastTopLevelScreen = "mainMenuScreen";
+  let ballRotation = 0;
+  let ballPositioned = false;
+
+  // Двигает шарик под доком к активной кнопке и слегка "прокатывает" его —
+  // угол поворота растёт пропорционально пройденному расстоянию, поэтому
+  // движение туда и обратно выглядит как реальное качение, а не скольжение.
+  function updateNavBall() {
+    if (!els.navBall || els.bottomNav.classList.contains("hidden")) return;
+    const activeBtn = document.querySelector(".nav-btn.is-active");
+    if (!activeBtn) return;
+
+    const navRect = els.bottomNav.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+    const centerX = btnRect.left + btnRect.width / 2 - navRect.left;
+    const prevLeft = ballPositioned ? parseFloat(els.navBall.style.left || centerX) : centerX;
+    const distance = centerX - prevLeft;
+
+    if (!ballPositioned) {
+      els.navBall.style.transition = "none";
+    }
+    ballRotation += distance * 2.4;
+    els.navBall.style.left = `${centerX}px`;
+    els.navBall.style.transform = `translateX(-50%) rotate(${ballRotation}deg)`;
+
+    if (!ballPositioned) {
+      void els.navBall.offsetWidth; // применяем позицию без анимации первого кадра
+      els.navBall.style.transition = "";
+      ballPositioned = true;
+    }
+  }
+
+  window.addEventListener("resize", updateNavBall);
+
+  // Проигрывает анимацию входа для экрана: слайд вправо/влево при
+  // переключении между "Главная" и "Профиль" в нижнем меню, иначе — плавное появление.
+  function playScreenAnim(el, screenId, isSubScreen) {
+    el.classList.remove("screen-anim-fade", "screen-anim-right", "screen-anim-left");
+    void el.offsetWidth;
+
+    let anim = "screen-anim-fade";
+    if (!isSubScreen) {
+      const prevIndex = TOP_LEVEL_SCREENS.indexOf(lastTopLevelScreen);
+      const nextIndex = TOP_LEVEL_SCREENS.indexOf(screenId);
+      if (prevIndex !== -1 && nextIndex !== -1 && prevIndex !== nextIndex) {
+        anim = nextIndex > prevIndex ? "screen-anim-right" : "screen-anim-left";
+      }
+      lastTopLevelScreen = screenId;
+    }
+    el.classList.add(anim);
+  }
 
   async function navigateTo(screenId, { push = true } = {}) {
     // Открытие самих игр сопровождаем коротким экраном загрузки с теми
@@ -101,7 +153,8 @@
       "aviatorScreen", "profileScreen", "historyScreen",
     ].forEach((id) => document.getElementById(id).classList.add("hidden"));
 
-    document.getElementById(screenId).classList.remove("hidden");
+    const screenEl = document.getElementById(screenId);
+    screenEl.classList.remove("hidden");
 
     // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
     // история) — кнопка "назад" видна в самих играх (колесо, самолётик).
@@ -112,6 +165,9 @@
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       btn.classList.toggle("is-active", btn.dataset.target === screenId);
     });
+
+    playScreenAnim(screenEl, screenId, isSubScreen);
+    requestAnimationFrame(updateNavBall);
 
     if (push) {
       if (!isSubScreen) {
