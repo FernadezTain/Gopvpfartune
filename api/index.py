@@ -97,7 +97,18 @@ def db():
         conn.close()
 
 
+# На serverless процесс может быть "тёплым" между вызовами (Vercel
+# переиспользует инстанс, если он не "заснул"), поэтому имеет смысл не
+# гонять CREATE TABLE IF NOT EXISTS на каждый запрос — только на первый
+# вызов в рамках живущего инстанса. На холодном старте отработает снова,
+# но это заведомо редкий случай, а не каждый /api/auth/request-code.
+_tables_ready = False
+
+
 def ensure_tables():
+    global _tables_ready
+    if _tables_ready:
+        return
     with db() as conn:
         cur = conn.cursor()
         cur.execute("""
@@ -137,46 +148,7 @@ def ensure_tables():
             )
         """)
         cur.close()
-
-
-def get_balance(user_id: int) -> int:
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
-        row = cur.fetchone()
-        cur.close()
-    return row[0] if row else 0
-
-
-def set_balance_delta(user_id: int, username: str, delta: int):
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
-            ON CONFLICT (user_id) DO UPDATE SET
-                balance = user_chances.balance + excluded.balance,
-                username = excluded.username
-        """, (user_id, username, delta))
-        cur.close()
-
-
-def try_spend(user_id: int, username: str, amount: int) -> bool:
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
-        row = cur.fetchone()
-        balance = row[0] if row else 0
-        if balance < amount:
-            cur.close()
-            return False
-        cur.execute("""
-            INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
-            ON CONFLICT (user_id) DO UPDATE SET
-                balance = user_chances.balance - %s,
-                username = excluded.username
-        """, (user_id, username, balance - amount, amount))
-        cur.close()
-    return True
+    _tables_ready = True
 
 
 @app.on_event("startup")
@@ -202,62 +174,45 @@ class SpinBody(BaseModel):
 
 # ---------- авторизация ----------
 
-def create_session(user_id: int, username: str) -> str:
-    token = secrets.token_urlsafe(32)
-    now = int(time.time())
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO sessions (token, user_id, username, created_at, expires_at) VALUES (%s, %s, %s, %s, %s)",
-            (token, user_id, username, now, now + SESSION_TTL_SECONDS),
-        )
-        cur.close()
-    return token
-
-
-def get_session(token: str) -> Optional[dict]:
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT token, user_id, username, expires_at FROM sessions WHERE token = %s", (token,)
-        )
-        row = cur.fetchone()
-        cur.close()
-    if not row:
-        return None
-    if row[3] < time.time():
-        return None
+def require_session(conn, token: str) -> dict:
+    """Проверяет сессию в рамках УЖЕ открытого соединения — так эндпоинты,
+    которым нужна и авторизация, и своя работа с базой (spin, history, me),
+    делают это одним соединением на запрос, а не двумя (раньше сначала
+    current_user открывал своё соединение, потом эндпоинт — своё)."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT token, user_id, username, expires_at FROM sessions WHERE token = %s", (token,)
+    )
+    row = cur.fetchone()
+    cur.close()
+    if not row or row[3] < time.time():
+        raise HTTPException(status_code=401, detail="Сессия недействительна, войдите снова")
     return {"token": row[0], "user_id": row[1], "username": row[2]}
 
 
-async def current_user(authorization: Optional[str] = Header(default=None)) -> dict:
+async def bearer_token(authorization: Optional[str] = Header(default=None)) -> str:
+    """Достаёт токен из заголовка — без похода в базу. Саму сессию
+    проверяет require_session() внутри соединения конкретного эндпоинта."""
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Нет токена авторизации")
-    token = authorization.split(" ", 1)[1].strip()
-    session = get_session(token)
-    if not session:
-        raise HTTPException(status_code=401, detail="Сессия недействительна, войдите снова")
-    return session
+    return authorization.split(" ", 1)[1].strip()
 
 
 @app.post("/api/auth/request-code")
 async def request_code(body: RequestCodeBody):
-    ensure_tables()
     user_id = body.telegram_id
     now = int(time.time())
-
-    with db() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT last_sent_at FROM auth_codes WHERE user_id = %s", (user_id,))
-        row = cur.fetchone()
-        cur.close()
-        if row and now - row[0] < CODE_RESEND_COOLDOWN:
-            wait = CODE_RESEND_COOLDOWN - (now - row[0])
-            raise HTTPException(status_code=429, detail=f"Подождите {wait} сек. перед повторной отправкой кода")
 
     code = f"{secrets.randbelow(1_000_000):06d}"
     with db() as conn:
         cur = conn.cursor()
+        cur.execute("SELECT last_sent_at FROM auth_codes WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        if row and now - row[0] < CODE_RESEND_COOLDOWN:
+            wait = CODE_RESEND_COOLDOWN - (now - row[0])
+            cur.close()
+            raise HTTPException(status_code=429, detail=f"Подождите {wait} сек. перед повторной отправкой кода")
+
         cur.execute("""
             INSERT INTO auth_codes (user_id, code, expires_at, last_sent_at) VALUES (%s, %s, %s, %s)
             ON CONFLICT (user_id) DO UPDATE SET code = excluded.code,
@@ -286,40 +241,56 @@ async def request_code(body: RequestCodeBody):
 @app.post("/api/auth/verify")
 async def verify_code(body: VerifyCodeBody):
     user_id = body.telegram_id
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+
     with db() as conn:
         cur = conn.cursor()
         cur.execute("SELECT code, expires_at FROM auth_codes WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
-        cur.close()
 
-    if not row:
-        raise HTTPException(status_code=400, detail="Сначала запросите код")
-    stored_code, expires_at = row
-    if time.time() > expires_at:
-        raise HTTPException(status_code=400, detail="Код истёк, запросите новый")
-    if not secrets.compare_digest(stored_code, body.code.strip()):
-        raise HTTPException(status_code=400, detail="Неверный код")
+        if not row:
+            cur.close()
+            raise HTTPException(status_code=400, detail="Сначала запросите код")
+        stored_code, expires_at = row
+        if time.time() > expires_at:
+            cur.close()
+            raise HTTPException(status_code=400, detail="Код истёк, запросите новый")
+        if not secrets.compare_digest(stored_code, body.code.strip()):
+            cur.close()
+            raise HTTPException(status_code=400, detail="Неверный код")
 
-    with db() as conn:
-        cur = conn.cursor()
         cur.execute("DELETE FROM auth_codes WHERE user_id = %s", (user_id,))
-        cur.execute("SELECT username FROM user_chances WHERE user_id = %s", (user_id,))
+        cur.execute("SELECT username, balance FROM user_chances WHERE user_id = %s", (user_id,))
         u = cur.fetchone()
-        cur.close()
-    username = u[0] if u and u[0] else str(user_id)
+        username = u[0] if u and u[0] else str(user_id)
+        balance = u[1] if u else 0
 
-    token = create_session(user_id, username)
-    return {"ok": True, "token": token, "telegram_id": user_id, "username": username, "balance": get_balance(user_id)}
+        cur.execute(
+            "INSERT INTO sessions (token, user_id, username, created_at, expires_at) VALUES (%s, %s, %s, %s, %s)",
+            (token, user_id, username, now, now + SESSION_TTL_SECONDS),
+        )
+        cur.close()
+
+    return {"ok": True, "token": token, "telegram_id": user_id, "username": username, "balance": balance}
 
 
 # ---------- профиль / баланс ----------
 
 @app.get("/api/me")
-async def me(user=Depends(current_user)):
+async def me(token: str = Depends(bearer_token)):
+    with db() as conn:
+        user = require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user["user_id"],))
+        row = cur.fetchone()
+        cur.close()
+    balance = row[0] if row else 0
+
     return {
         "telegram_id": user["user_id"],
         "username": user["username"],
-        "balance": get_balance(user["user_id"]),
+        "balance": balance,
         "min_bet": MIN_BET,
         "bet_step": BET_STEP,
         "max_bet": MAX_BET,
@@ -331,8 +302,9 @@ async def me(user=Depends(current_user)):
 
 
 @app.get("/api/history")
-async def history(user=Depends(current_user)):
+async def history(token: str = Depends(bearer_token)):
     with db() as conn:
+        user = require_session(conn, token)
         cur = conn.cursor()
         cur.execute("""
             SELECT bet, label, payout, balance_after, created_at
@@ -358,31 +330,41 @@ def roll_section() -> tuple[int, dict]:
 
 
 @app.post("/api/spin")
-async def spin(body: SpinBody, user=Depends(current_user)):
-    user_id = user["user_id"]
-    username = user["username"]
+async def spin(body: SpinBody, token: str = Depends(bearer_token)):
     bet = body.bet
-
     if bet != MIN_BET and (bet - MIN_BET) % BET_STEP != 0:
         raise HTTPException(status_code=400, detail=f"Некорректная ставка")
 
-    if not try_spend(user_id, username, bet):
-        raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
-
     index, section = roll_section()
-
     if section["kind"] == "bonus_chance":
         payout = bet + 1  # ставка возвращается + бонусный шанс
     else:
         payout = int(bet * section["multiplier"])
+    net = payout - bet  # итоговое изменение баланса за один спин
 
-    if payout > 0:
-        set_balance_delta(user_id, username, payout)
-
-    new_balance = get_balance(user_id)
-
+    # Всё действие — проверка сессии, списание ставки, начисление выигрыша,
+    # чтение нового баланса, запись в историю — одно соединение и одна
+    # транзакция, а не пять отдельных, как было раньше.
     with db() as conn:
+        user = require_session(conn, token)
+        user_id, username = user["user_id"], user["username"]
+
         cur = conn.cursor()
+        cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        balance = row[0] if row else 0
+        if balance < bet:
+            cur.close()
+            raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
+
+        new_balance = balance + net
+        cur.execute("""
+            INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                balance = %s,
+                username = excluded.username
+        """, (user_id, username, new_balance, new_balance))
+
         cur.execute("""
             INSERT INTO spins (user_id, bet, label, multiplier, payout, balance_after, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
