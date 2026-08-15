@@ -15,15 +15,24 @@
     "x5": "#ff9f1c",
   };
 
+  const GAME_NAMES = { wheel: "Колесо Фортуны", aviator: "Самолётик" };
+
   const els = {
     preloader: document.getElementById("preloader"),
     lettersWrap: document.querySelector(".preloader-letters"),
     lettersFill: document.getElementById("lettersFill"),
 
-    loginScreen: document.getElementById("loginScreen"),
-    wheelScreen: document.getElementById("wheelScreen"),
+    backBtn: document.getElementById("backBtn"),
+    bottomNav: document.getElementById("bottomNav"),
     balanceChip: document.getElementById("balanceChip"),
     balanceValue: document.getElementById("balanceValue"),
+
+    loginScreen: document.getElementById("loginScreen"),
+    mainMenuScreen: document.getElementById("mainMenuScreen"),
+    wheelScreen: document.getElementById("wheelScreen"),
+    aviatorScreen: document.getElementById("aviatorScreen"),
+    profileScreen: document.getElementById("profileScreen"),
+    historyScreen: document.getElementById("historyScreen"),
 
     idForm: document.getElementById("idForm"),
     telegramId: document.getElementById("telegramId"),
@@ -38,7 +47,6 @@
     wheel: document.getElementById("wheel"),
     resultBadge: document.getElementById("resultBadge"),
     legendList: document.getElementById("legendList"),
-    historyList: document.getElementById("historyList"),
 
     betMinus: document.getElementById("betMinus"),
     betPlus: document.getElementById("betPlus"),
@@ -46,6 +54,22 @@
     spinBtn: document.getElementById("spinBtn"),
     spinCost: document.getElementById("spinCost"),
     spinError: document.getElementById("spinError"),
+
+    profileName: document.getElementById("profileName"),
+    profileId: document.getElementById("profileId"),
+    profileBalance: document.getElementById("profileBalance"),
+    openHistoryBtn: document.getElementById("openHistoryBtn"),
+    logoutBtn: document.getElementById("logoutBtn"),
+
+    historyTableBody: document.getElementById("historyTableBody"),
+  };
+
+  // Общее состояние приложения — доступно и aviator.js через window.AppState
+  window.AppState = {
+    telegramId: null,
+    username: null,
+    getToken: () => localStorage.getItem(TOKEN_KEY),
+    setBalance: setBalance,
   };
 
   let pendingTelegramId = null;
@@ -55,26 +79,53 @@
   let currentDeg = 0;
   let spinning = false;
 
-  // ---------- API helper ----------
+  // ---------- роутер экранов ----------
 
-  async function api(path, { method = "GET", body, auth = false } = {}) {
-    const headers = { "Content-Type": "application/json" };
-    if (auth) {
-      const token = localStorage.getItem(TOKEN_KEY);
-      if (!token) throw new Error("Нет сессии");
-      headers["Authorization"] = "Bearer " + token;
-    }
-    const res = await fetch(API_BASE + path, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
+  const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
+  const screenStack = ["mainMenuScreen"];
+
+  function navigateTo(screenId, { push = true } = {}) {
+    [
+      "loginScreen", "mainMenuScreen", "wheelScreen",
+      "aviatorScreen", "profileScreen", "historyScreen",
+    ].forEach((id) => document.getElementById(id).classList.add("hidden"));
+
+    document.getElementById(screenId).classList.remove("hidden");
+
+    // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
+    // история) — кнопка "назад" видна в самих играх (колесо, самолётик).
+    const isSubScreen = ["wheelScreen", "aviatorScreen", "historyScreen"].includes(screenId);
+    els.bottomNav.classList.toggle("hidden", isSubScreen);
+    els.backBtn.classList.toggle("hidden", !isSubScreen);
+
+    document.querySelectorAll(".nav-btn").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.target === screenId);
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.detail || "Ошибка запроса");
+
+    if (push) {
+      if (!isSubScreen) {
+        screenStack.length = 0;
+      }
+      screenStack.push(screenId);
     }
-    return data;
+
+    if (screenId === "aviatorScreen" && window.AviatorGame) {
+      window.AviatorGame.onEnter();
+    }
+    if (screenId === "historyScreen") {
+      loadGamesHistory();
+    }
   }
+
+  els.backBtn.addEventListener("click", () => {
+    screenStack.pop();
+    const prev = screenStack[screenStack.length - 1] || "mainMenuScreen";
+    navigateTo(prev, { push: false });
+  });
+
+  document.querySelectorAll(".game-card, .nav-btn").forEach((btn) => {
+    btn.addEventListener("click", () => navigateTo(btn.dataset.target));
+  });
 
   // ---------- login flow ----------
 
@@ -132,6 +183,11 @@
     }
   });
 
+  els.logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem(TOKEN_KEY);
+    window.location.reload();
+  });
+
   function showError(msg) {
     els.loginError.textContent = msg;
     els.loginError.classList.remove("hidden");
@@ -154,19 +210,27 @@
     maxBet = me.max_bet;
     bet = minBet;
 
+    window.AppState.telegramId = me.telegram_id;
+    window.AppState.username = me.username;
+
     els.loginScreen.classList.add("hidden");
-    els.wheelScreen.classList.remove("hidden");
     els.balanceChip.classList.remove("hidden");
     setBalance(me.balance);
 
     buildWheel();
     buildLegend();
     updateBetUI();
-    loadHistory();
+
+    els.profileName.textContent = me.username || String(me.telegram_id);
+    els.profileId.textContent = `ID: ${me.telegram_id}`;
+    els.profileBalance.textContent = me.balance;
+
+    navigateTo("mainMenuScreen");
   }
 
   function setBalance(v) {
     els.balanceValue.textContent = v;
+    els.profileBalance.textContent = v;
   }
 
   function buildWheel() {
@@ -252,7 +316,7 @@
     const n = sections.length;
     const step = 360 / n;
     const center = index * step + step / 2;
-    const jitter = (Math.random() - 0.5) * (step * 0.5); // держимся в пределах сектора
+    const jitter = (Math.random() - 0.5) * (step * 0.5);
     const targetMod = ((360 - center - jitter) % 360 + 360) % 360;
 
     const extraSpins = 5;
@@ -283,54 +347,72 @@
       els.resultBadge.classList.add("flat");
       els.resultBadge.textContent = `${data.label} · ставка возвращена`;
     }
-    prependHistory(data);
   }
 
-  function prependHistory(data) {
-    const empty = els.historyList.querySelector(".history-empty");
-    if (empty) empty.remove();
-    const li = document.createElement("li");
-    const net = data.payout - data.bet;
-    const sign = net > 0 ? "+" : net < 0 ? "−" : "±";
-    li.innerHTML = `<span>${data.label}</span><span>${sign}${Math.abs(net)}</span>`;
-    els.historyList.prepend(li);
-    while (els.historyList.children.length > 15) {
-      els.historyList.removeChild(els.historyList.lastChild);
-    }
-  }
+  // ---------- история игр (профиль) ----------
 
-  async function loadHistory() {
+  async function loadGamesHistory() {
+    els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Загрузка…</td></tr>`;
     try {
-      const data = await api("/api/history", { auth: true });
-      if (!data.spins.length) return;
-      els.historyList.innerHTML = "";
-      data.spins.forEach((s) => {
-        const li = document.createElement("li");
-        const net = s.payout - s.bet;
-        const sign = net > 0 ? "+" : net < 0 ? "−" : "±";
-        li.innerHTML = `<span>${s.label}</span><span>${sign}${Math.abs(net)}</span>`;
-        els.historyList.appendChild(li);
+      const data = await api("/api/games/history", { auth: true });
+      if (!data.rounds.length) {
+        els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Пока пусто — сыграйте первую игру.</td></tr>`;
+        return;
+      }
+      els.historyTableBody.innerHTML = "";
+      data.rounds.forEach((r) => {
+        const tr = document.createElement("tr");
+        const changeClass = r.balance_change > 0 ? "change-positive" : r.balance_change < 0 ? "change-negative" : "";
+        const sign = r.balance_change > 0 ? "+" : "";
+        const shortId = r.game_round_id.slice(0, 8);
+        tr.innerHTML = `
+          <td>${GAME_NAMES[r.game_type] || r.game_type}</td>
+          <td class="game-id-cell" title="${r.game_round_id}">${shortId}…</td>
+          <td>${r.bet}</td>
+          <td>${r.result_label || "—"}</td>
+          <td class="${changeClass}">${sign}${r.balance_change}</td>
+        `;
+        els.historyTableBody.appendChild(tr);
       });
-    } catch (_) {
-      // тихо игнорируем — не критично для отображения
+    } catch (err) {
+      els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Не удалось загрузить историю</td></tr>`;
     }
   }
+
+  els.openHistoryBtn.addEventListener("click", () => navigateTo("historyScreen"));
+
+  // ---------- API helper (общий, используется и aviator.js) ----------
+
+  async function api(path, { method = "GET", body, auth = false, base = API_BASE } = {}) {
+    const headers = { "Content-Type": "application/json" };
+    if (auth) {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) throw new Error("Нет сессии");
+      headers["Authorization"] = "Bearer " + token;
+    }
+    const res = await fetch(base + path, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.detail || "Ошибка запроса");
+    }
+    return data;
+  }
+  window.AppState.api = api;
 
   // ---------- preloader ----------
 
-  // Плавно "заливает" буквы GP снизу вверх (серый -> жёлтый) за заданное время
-  // и возвращает промис, который резолвится, когда анимация полностью завершена.
   function runPreloaderFill(durationMs) {
     return new Promise((resolve) => {
       const start = performance.now();
-
       function frame(now) {
         const t = Math.min(1, (now - start) / durationMs);
-        // easeInOutQuad — мягкий разгон и мягкое замедление
         const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
         const topInset = (1 - eased) * 100;
         els.lettersFill.style.clipPath = `inset(${topInset}% 0 0 0)`;
-
         if (t < 1) {
           requestAnimationFrame(frame);
         } else {
@@ -338,23 +420,22 @@
           resolve();
         }
       }
-
       requestAnimationFrame(frame);
     });
   }
 
   function hidePreloader() {
     els.preloader.classList.add("preloader-out");
-    window.setTimeout(() => {
-      els.preloader.remove();
-    }, 550);
+    window.setTimeout(() => els.preloader.remove(), 550);
   }
 
   // ---------- boot ----------
+  // Заливка идёт ПАРАЛЛЕЛЬНО с проверкой сессии — пока грузится экран,
+  // мы уже успеваем узнать, залогинен ли человек, и к моменту, когда
+  // прелоадер исчезает, сразу открывается либо меню, либо форма входа
+  // (а не форма входа "по умолчанию" с последующим миганием).
 
   (async function boot() {
-    // Заливка идёт параллельно с проверкой сессии — что бы ни случилось раньше,
-    // экран загрузки не уйдёт быстрее, чем за ~1.4с, и не позже, чем оба процесса завершатся.
     const fillDone = runPreloaderFill(1400);
 
     let loggedIn = false;
