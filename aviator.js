@@ -18,7 +18,7 @@
     actionText: document.getElementById("aviActionText"),
     actionCost: document.getElementById("aviActionCost"),
     error: document.getElementById("aviError"),
-    playersList: document.getElementById("aviPlayersList"),
+    recentGamesList: document.getElementById("aviRecentGamesList"),
   };
 
   const ctx = els.canvas.getContext("2d");
@@ -272,6 +272,7 @@
     showError("Не успели — ставка сгорела");
     lockBetting(BET_LOCK_MS);
     updateActionButton();
+    fetchRecentGames();
   }
 
   function resetRoundUI() {
@@ -287,25 +288,68 @@
     els.screen.classList.remove("is-flying", "is-crashed");
     els.plane.classList.add("is-hidden");
     hideError();
-    renderOwnStatus();
     updateActionButton();
   }
 
-  // ---------- статус собственной ставки (раунды личные — общего списка игроков нет) ----------
+  // ---------- последние 5 игр (всех игроков) ----------
 
-  function renderOwnStatus() {
-    els.playersList.innerHTML = "";
-    const li = document.createElement("li");
-    if (roundStatus === "idle") {
+  const RESULT_LABELS = { wheel: "Колесо", aviator: "Авиатор" };
+
+  function formatGameTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString("ru-RU", {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+  }
+
+  function renderRecentGames(games) {
+    els.recentGamesList.innerHTML = "";
+    if (!games || games.length === 0) {
+      const li = document.createElement("li");
       li.className = "history-empty";
-      li.textContent = "Ваш полёт начнётся сразу после ставки.";
-    } else if (roundStatus === "flying") {
-      li.className = "pending";
-      li.textContent = `В полёте — ставка ${bet}`;
-    } else if (roundStatus === "crashed") {
-      li.textContent = "Разбился — ставка сгорела";
+      li.textContent = "Игр пока не было.";
+      els.recentGamesList.appendChild(li);
+      return;
     }
-    els.playersList.appendChild(li);
+    for (const g of games) {
+      const li = document.createElement("li");
+      li.className = "recent-game-row";
+
+      const changeClass = g.balance_change > 0 ? "change-positive"
+        : g.balance_change < 0 ? "change-negative"
+        : "change-neutral";
+      const changeText = g.balance_change > 0 ? `+${g.balance_change}` : `${g.balance_change}`;
+      const gameLabel = RESULT_LABELS[g.game_type] || g.game_type;
+
+      li.innerHTML = `
+        <div class="rg-top">
+          <span class="rg-name">${escapeHtml(g.username)}</span>
+          <span class="rg-time">${formatGameTime(g.created_at)}</span>
+        </div>
+        <div class="rg-bottom">
+          <span class="rg-bet">${escapeHtml(gameLabel)} · ставка ${g.bet}</span>
+          <span class="rg-result ${changeClass}">${changeText} (${escapeHtml(g.result_label)})</span>
+        </div>
+      `;
+      els.recentGamesList.appendChild(li);
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  async function fetchRecentGames() {
+    try {
+      const data = await AppState.api("/api/games/recent", { auth: true });
+      renderRecentGames(data.games);
+    } catch (_) {
+      // тихо — это вспомогательный блок, не должен ломать саму игру
+    }
   }
 
   // ---------- ставка / кэшаут ----------
@@ -331,7 +375,6 @@
       els.actionText.textContent = "Забрать";
       els.actionCost.textContent = els.multiplier.textContent;
     }
-    renderOwnStatus();
   }
 
   function clampBet(value) {
@@ -428,6 +471,7 @@
         els.status.textContent = "Ставьте снова, когда будете готовы.";
         els.screen.classList.remove("is-flying");
         els.plane.classList.add("is-hidden");
+        fetchRecentGames();
       }
     } catch (e) {
       showError(e.message);
@@ -548,6 +592,7 @@
     } catch (_) {
       els.status.textContent = "Не удалось подключиться";
     }
+    fetchRecentGames();
   }
 
   window.AviatorGame = { onEnter };
