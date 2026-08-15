@@ -136,6 +136,12 @@
     const myToken = pollToken;
     pollHandle = setInterval(async () => {
       if (roundStatus !== "flying" || myToken !== pollToken) return;
+      // t0 — момент отправки запроса. Множитель в ответе соответствует
+      // тому, что было на сервере где-то между t0 и моментом получения
+      // ответа (RTT). Берём середину этого интервала как оценку истинного
+      // момента — так компенсируем сетевую задержку, а не добавляем её
+      // целиком к таймеру (что и вызывало прыжки табло вперёд).
+      const t0 = performance.now();
       try {
         const state = await AppState.api("/api/aviator/state", { auth: true });
         // Пока ждали ответ, раунд мог уже смениться (кэшаут + новая
@@ -147,10 +153,15 @@
           // локально мы это ещё не знали, отдельного push-уведомления нет
           handleCrash();
         } else if (typeof state.multiplier === "number") {
-          // подтягиваем локальный таймер к серверному множителю, чтобы
-          // рассинхрон (throttling вкладки, дрейф rAF и т.п.) не копился
+          const rtt = performance.now() - t0;
+          const serverSampleTime = t0 + rtt / 2;
           const elapsedGuess = Math.log(state.multiplier) / GROWTH_RATE;
-          flyingStartedAt = performance.now() - elapsedGuess * 1000;
+          const newFlyingStartedAt = serverSampleTime - elapsedGuess * 1000;
+          // Синкаем только при заметном дрейфе (>80мс) — иначе микро-разницы
+          // от асимметрии RTT будут дёргать табло почём зря.
+          if (Math.abs(newFlyingStartedAt - flyingStartedAt) > 80) {
+            flyingStartedAt = newFlyingStartedAt;
+          }
         }
       } catch (_) {
         // сеть моргнула — не страшно, попробуем на следующем тике
@@ -334,6 +345,10 @@
   async function onEnter() {
     resizeCanvas();
     els.betValue.value = bet;
+    // t0 — момент отправки запроса, нужен для той же компенсации RTT,
+    // что и в startPolling: без неё табло после reload «доезжает» вперёд
+    // на время задержки сети.
+    const t0 = performance.now();
     try {
       const state = await AppState.api("/api/aviator/state", { auth: true });
       if (state.has_round && state.status === "flying") {
@@ -343,8 +358,10 @@
         // Восстанавливаем локальный старт полёта из текущего множителя,
         // чтобы анимация продолжилась с правильного места после reload:
         // mult = exp(RATE*t) -> t = ln(mult)/RATE
+        const rtt = performance.now() - t0;
+        const serverSampleTime = t0 + rtt / 2;
         const elapsedGuess = Math.log(state.multiplier) / GROWTH_RATE;
-        flyingStartedAt = performance.now() - elapsedGuess * 1000;
+        flyingStartedAt = serverSampleTime - elapsedGuess * 1000;
         history.length = 0;
         els.status.textContent = "Полёт!";
         els.multiplier.textContent = `${state.multiplier.toFixed(2)}x`;
