@@ -16,6 +16,14 @@
 
 * { box-sizing: border-box; }
 
+html {
+  /* Резервная защита от зума: даже если viewport meta будет проигнорирован
+     браузером, двойной тап и pinch-жест на элементах не масштабируют их. */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -23,12 +31,20 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
+  overscroll-behavior-y: contain;
 }
 
 body {
   background-color: var(--bg);
   padding-bottom: 78px; /* место под нижнюю навигацию */
   position: relative;
+}
+
+/* На всякий случай — независимо от класса, ни одно поле ввода не должно
+   иметь font-size меньше 16px: это тот порог, ниже которого iOS Safari
+   сам приближает страницу при фокусе на поле. */
+input, select, textarea {
+  font-size: 16px;
 }
 
 /*
@@ -106,21 +122,11 @@ body {
   color: #322e48;
 }
 
-/*
-  Свечение — через text-shadow (повторяет форму самих букв), а НЕ через
-  filter: drop-shadow на весь блок. filter считает размытие по общему
-  прямоугольнику надписи и на паре плотных широких букв "GP" превращается
-  в засвеченный квадрат вокруг текста. text-shadow всегда обтекает контур
-  глифов, поэтому светятся именно буквы, а не рамка вокруг них.
-*/
 .letters-fill {
   position: absolute;
   inset: 0;
   padding: 0;
   color: var(--gold);
-  text-shadow:
-    0 0 8px rgba(255, 200, 87, 0.9),
-    0 0 22px rgba(255, 200, 87, 0.5);
   clip-path: inset(100% 0 0 0);
   background: none;
 }
@@ -130,18 +136,9 @@ body {
 }
 
 @keyframes preloader-pulse {
-  0% {
-    text-shadow: 0 0 8px rgba(255, 200, 87, 0.9), 0 0 22px rgba(255, 200, 87, 0.5);
-    transform: scale(1);
-  }
-  40% {
-    text-shadow: 0 0 14px rgba(255, 200, 87, 1), 0 0 44px rgba(255, 200, 87, 0.85);
-    transform: scale(1.05);
-  }
-  100% {
-    text-shadow: 0 0 8px rgba(255, 200, 87, 0.9), 0 0 22px rgba(255, 200, 87, 0.5);
-    transform: scale(1);
-  }
+  0% { transform: scale(1); }
+  40% { transform: scale(1.05); }
+  100% { transform: scale(1); }
 }
 
 /* ---------- Topbar ---------- */
@@ -933,6 +930,7 @@ body {
   gap: 8px;
   max-height: 220px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .history-list li {
@@ -1216,6 +1214,7 @@ body {
 
 .history-table-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: 16px;
   border: 1px solid var(--panel-line);
   background: var(--panel);
@@ -1318,29 +1317,6 @@ body {
   filter: drop-shadow(0 0 6px rgba(255,200,87,0.55));
 }
 
-/* Шарик, катящийся под доком в сторону активного раздела */
-.nav-ball {
-  position: absolute;
-  bottom: -13px;
-  left: 50%;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 32% 28%, #ffe9b8, var(--gold) 55%, #d9862c 100%);
-  box-shadow: 0 3px 6px rgba(0,0,0,0.45), 0 0 10px rgba(255,200,87,0.5);
-  transition: left 0.42s cubic-bezier(0.34, 1.35, 0.64, 1), transform 0.42s cubic-bezier(0.34, 1.35, 0.64, 1);
-  will-change: left, transform;
-  pointer-events: none;
-  z-index: 5;
-}
-.nav-ball::before {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, transparent 40%, rgba(0,0,0,0.28) 100%);
-}
-
 /* ---------- Анимации переключения разделов ---------- */
 
 @keyframes screen-fade-in {
@@ -1363,7 +1339,7 @@ body {
 .screen-anim-left { animation: screen-slide-left-in 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
 
 @media (max-width: 520px) {
-  .topbar { padding: 14px 16px; }
+  .topbar { margin: 8px 10px 0; padding: 12px 16px; border-radius: 16px; }
   .login-card { padding: 30px 22px; }
   .login-title { font-size: 25px; }
   .game-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -1371,4 +1347,34 @@ body {
   .game-card-icon-badge { width: 54px; height: 54px; left: -12px; bottom: -12px; border-radius: 16px; }
   .icon-wheel { width: 26px; height: 26px; }
   .icon-plane { width: 24px; height: 24px; }
+  .aviator-stage { height: 260px; border-radius: 18px; }
+  .aviator-multiplier { font-size: 32px; }
+  .aviator-readout { padding: 9px 14px; top: 12px; left: 14px; }
+  .aviator-status { bottom: 12px; left: 14px; padding: 6px 12px; font-size: 11.5px; }
+}
+
+/* ---------- Экономия ресурсов на телефонах ---------- */
+/* Мобильные GPU заметно слабее десктопных — тяжёлые непрерывные эффекты
+   (SVG-шум с feTurbulence, глубокий backdrop-blur сразу на двух плавающих
+   панелях) на бюджетных устройствах превращаются в лаги при скролле и
+   анимациях. На узких экранах отключаем/облегчаем именно их, не трогая
+   сам внешний вид карточек и текста. */
+@media (max-width: 640px) {
+  .noise-overlay { display: none; }
+  .topbar, .bottom-nav {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .aviator-stage-grid { background-image: none; }
+}
+
+/* Пользователь просит систему не анимировать лишнее — уважаем это
+   и на телефонах, и на десктопе. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
