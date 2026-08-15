@@ -588,6 +588,12 @@ async def aviator_bet(
     body: AviatorBetBody,
     token: str = Depends(bearer_token)
 ):
+
+    raise HTTPException(
+        status_code=503,
+        detail="Пока недоступно"
+    )
+
     with db() as conn:
         user = require_session(conn, token)
         user_id = user["user_id"]
