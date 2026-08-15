@@ -30,6 +30,7 @@ body {
     radial-gradient(circle at 18% 8%, rgba(123,97,255,0.20), transparent 40%),
     radial-gradient(circle at 85% 12%, rgba(255,200,87,0.14), transparent 38%),
     radial-gradient(circle at 50% 100%, rgba(51,214,159,0.10), transparent 45%);
+  padding-bottom: 78px; /* место под нижнюю навигацию */
 }
 
 .hidden { display: none !important; }
@@ -111,6 +112,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 18px 28px;
   backdrop-filter: blur(10px);
   background: linear-gradient(to bottom, rgba(18,16,28,0.9), rgba(18,16,28,0.55));
@@ -129,6 +131,23 @@ body {
 
 .brand-mark { font-size: 20px; }
 
+.back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-right: auto;
+  padding: 6px 10px;
+  border-radius: 10px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.back-btn:hover { color: var(--text); background: var(--panel); }
+.back-arrow { font-size: 17px; }
+
 .balance-chip {
   display: flex;
   align-items: baseline;
@@ -138,6 +157,7 @@ body {
   background: var(--panel);
   border: 1px solid var(--panel-line);
   box-shadow: 0 0 0 1px rgba(255,200,87,0.08) inset;
+  margin-left: auto;
 }
 
 .balance-label {
@@ -290,6 +310,66 @@ body {
   font-size: 13.5px;
 }
 
+/* ---------- Главное меню ---------- */
+
+.menu-screen {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+
+.menu-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 20px;
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.game-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 24px 20px;
+  border-radius: 20px;
+  border: 1px solid var(--panel-line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.game-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background: radial-gradient(circle at 100% 0%, rgba(255,255,255,0.08), transparent 60%);
+  pointer-events: none;
+}
+
+.game-card:hover { transform: translateY(-3px); border-color: var(--violet); }
+.game-card:active { transform: scale(0.98); }
+
+.game-card-icon { font-size: 34px; }
+.game-card-name { font-family: var(--font-display); font-weight: 700; font-size: 15px; }
+.game-card-sub { font-size: 12.5px; color: var(--text-dim); }
+
+.game-card-wheel { box-shadow: 0 0 0 1px rgba(255,200,87,0.08) inset; }
+.game-card-aviator { box-shadow: 0 0 0 1px rgba(123,97,255,0.12) inset; }
+
 /* ---------- Wheel screen ---------- */
 
 .wheel-screen {
@@ -297,7 +377,7 @@ body {
   z-index: 1;
   max-width: 980px;
   margin: 0 auto;
-  padding: 44px 20px 80px;
+  padding: 30px 20px 60px;
   display: grid;
   grid-template-columns: 1fr;
   gap: 34px;
@@ -400,7 +480,7 @@ body {
   to { transform: scale(1); opacity: 1; }
 }
 
-/* ---------- Control panel ---------- */
+/* ---------- Control panel (общий для колеса и самолётика) ---------- */
 
 .control-panel {
   width: 100%;
@@ -409,6 +489,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 16px;
+  margin: 0 auto;
 }
 
 .bet-control {
@@ -468,6 +549,11 @@ body {
   box-shadow: 0 16px 30px -14px rgba(255,200,87,0.55);
 }
 
+.btn-spin.is-cashout {
+  background: linear-gradient(135deg, var(--green), #23b585);
+  box-shadow: 0 16px 30px -14px rgba(51,214,159,0.55);
+}
+
 .btn-spin-text { font-family: var(--font-display); font-size: 17px; }
 .btn-spin-cost { font-family: var(--font-mono); font-size: 12.5px; opacity: 0.75; }
 
@@ -477,7 +563,7 @@ body {
   font-size: 13px;
 }
 
-/* ---------- Legend / history ---------- */
+/* ---------- Legend / history list ---------- */
 
 .legend, .history-panel {
   width: 100%;
@@ -486,6 +572,7 @@ body {
   border-radius: 16px;
   background: var(--panel);
   border: 1px solid var(--panel-line);
+  margin: 0 auto;
 }
 
 .legend-title {
@@ -542,14 +629,216 @@ body {
   background: var(--bg-soft);
 }
 
+.history-list li.cashed-out { color: var(--green); }
+.history-list li.pending { color: var(--text-dim); }
+
 .history-empty {
   color: var(--text-dim);
   font-family: var(--font-body) !important;
   justify-content: center !important;
 }
 
+/* ---------- Самолётик ---------- */
+
+.aviator-screen {
+  position: relative;
+  z-index: 1;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 20px 20px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: center;
+}
+
+.aviator-stage {
+  position: relative;
+  width: 100%;
+  height: 280px;
+  border-radius: 20px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #1a1730, #100d1e);
+  border: 1px solid var(--panel-line);
+}
+
+.aviator-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.aviator-multiplier {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 44px;
+  color: var(--gold);
+  text-shadow: 0 0 26px rgba(255,200,87,0.5);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.aviator-multiplier.is-crashed { color: var(--red); text-shadow: 0 0 26px rgba(255,92,119,0.5); }
+
+.aviator-status {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12.5px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  z-index: 2;
+}
+
+/* ---------- Профиль ---------- */
+
+.profile-screen {
+  position: relative;
+  z-index: 1;
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 40px 20px 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-card {
+  width: 100%;
+  padding: 32px 24px;
+  border-radius: 20px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--violet), #9b7bff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.profile-name { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin: 0; }
+.profile-id { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-dim); margin: 0 0 10px; }
+
+.profile-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  border: 1px solid var(--panel-line);
+}
+
+.btn-history { width: 100%; }
+
+/* ---------- История игр ---------- */
+
+.history-screen {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+
+.history-table-wrap {
+  overflow-x: auto;
+  border-radius: 16px;
+  border: 1px solid var(--panel-line);
+  background: var(--panel);
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 520px;
+}
+
+.history-table th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--panel-line);
+}
+
+.history-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--panel-line);
+  font-family: var(--font-mono);
+}
+
+.history-table tr:last-child td { border-bottom: none; }
+
+.history-table .game-id-cell {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+.history-table .change-positive { color: var(--green); }
+.history-table .change-negative { color: var(--red); }
+
+/* ---------- Нижняя навигация ---------- */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: space-around;
+  padding: 10px 20px calc(10px + env(safe-area-inset-bottom));
+  background: rgba(18,16,28,0.92);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--panel-line);
+}
+
+.nav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 18px;
+}
+
+.nav-icon { font-size: 20px; }
+
+.nav-btn.is-active { color: var(--gold); }
+
 @media (max-width: 520px) {
   .topbar { padding: 14px 16px; }
   .login-card { padding: 30px 22px; }
   .login-title { font-size: 25px; }
+  .game-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+  .game-card { padding: 18px 14px; }
 }
