@@ -671,10 +671,22 @@ input, select, textarea {
   max-width: 980px;
   margin: 0 auto;
   padding: 30px 20px 60px;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 34px;
-  justify-items: center;
+}
+
+.wheel-layout {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: center;
+}
+
+.wheel-side {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: center;
 }
 
 .wheel-stage {
@@ -961,9 +973,6 @@ input, select, textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 260px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
 .recent-game-row {
@@ -1180,6 +1189,32 @@ input, select, textarea {
 @keyframes aviator-pulse-dot {
   0%, 100% { box-shadow: 0 0 0 4px rgba(51,214,159,0.18); }
   50% { box-shadow: 0 0 0 7px rgba(51,214,159,0.05); }
+}
+
+@media (min-width: 900px) {
+  .wheel-screen { max-width: 1040px; padding-top: 32px; }
+
+  .wheel-layout {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 32px;
+  }
+
+  .wheel-stage {
+    flex: 1 1 640px;
+  }
+
+  .wheel-side {
+    flex: 0 0 340px;
+    width: 340px;
+    gap: 22px;
+  }
+
+  .wheel-side .control-panel,
+  .wheel-side .legend {
+    max-width: none;
+  }
 }
 
 @media (min-width: 900px) {
