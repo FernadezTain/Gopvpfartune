@@ -443,29 +443,47 @@ async def games_history(token: str = Depends(bearer_token)):
 
 
 @app.get("/api/games/recent")
-async def games_recent(token: str = Depends(bearer_token)):
-    """Последние 5 игр ВСЕХ пользователей (любые игры — колесо, самолётик).
-    В отличие от /api/games/history — не персональная лента, а общая,
-    используется для блока "Последние игры" на экранах игр. Доступ
-    по-прежнему только для залогиненных (валидный токен), но сами данные
-    не фильтруются по user_id."""
+async def games_recent(
+    token: str = Depends(bearer_token),
+    game_type: Optional[str] = None,
+):
+    """Последние 5 игр ВСЕХ пользователей. По умолчанию — по всем играм
+    сразу; если передан ?game_type=wheel или ?game_type=aviator — только
+    по этой игре (так у каждой игры своя лента, а не общая на двоих)."""
     with db() as conn:
         require_session(conn, token)
         cur = conn.cursor()
-        cur.execute("""
-            SELECT
-                COALESCE(u.username, g.user_id::text) AS username,
-                g.game_type,
-                g.bet,
-                g.result_label,
-                g.payout,
-                g.balance_change,
-                g.created_at
-            FROM game_rounds g
-            LEFT JOIN user_chances u ON u.user_id = g.user_id
-            ORDER BY g.created_at DESC
-            LIMIT 5
-        """)
+        if game_type:
+            cur.execute("""
+                SELECT
+                    COALESCE(u.username, g.user_id::text) AS username,
+                    g.game_type,
+                    g.bet,
+                    g.result_label,
+                    g.payout,
+                    g.balance_change,
+                    g.created_at
+                FROM game_rounds g
+                LEFT JOIN user_chances u ON u.user_id = g.user_id
+                WHERE g.game_type = %s
+                ORDER BY g.created_at DESC
+                LIMIT 5
+            """, (game_type,))
+        else:
+            cur.execute("""
+                SELECT
+                    COALESCE(u.username, g.user_id::text) AS username,
+                    g.game_type,
+                    g.bet,
+                    g.result_label,
+                    g.payout,
+                    g.balance_change,
+                    g.created_at
+                FROM game_rounds g
+                LEFT JOIN user_chances u ON u.user_id = g.user_id
+                ORDER BY g.created_at DESC
+                LIMIT 5
+            """)
         rows = cur.fetchall()
         cur.close()
     return {"games": [
