@@ -212,20 +212,17 @@
       if (roundStatus === "idle" || roundStatus === "crashed") {
         const data = await AppState.api("/api/aviator/bet", { method: "POST", auth: true, body: { bet } });
         roundStatus = "flying";
-        // Раунд общий: пока запрос летел туда-обратно (или если раунд
-        // уже был запущен раньше — например другим игроком), реальный
-        // множитель на сервере мог уйти вперёд от 1.00x. Синхронизируем
-        // локальный таймер по факту, а не считаем, что старт — это
-        // момент получения ответа (иначе именно тут возникает рассинхрон
-        // между тем, что показывает клиент, и тем, что считает сервер
-        // при кэшауте).
-        const startMult = data.multiplier || 1;
-        const elapsedGuess = Math.log(startMult) / GROWTH_RATE;
-        flyingStartedAt = performance.now() - elapsedGuess * 1000;
+        // Каждая ставка теперь всегда открывает свой собственный, новый
+        // раунд на сервере (started_flying_at = now()) — значит честный
+        // старт всегда 1.00x. Сбрасываем локально сразу, не дожидаясь
+        // и не подстраиваясь под multiplier из ответа: так табло гарантированно
+        // показывает 1.00x в момент старта, а не «доедет» до какого-то
+        // промежуточного числа из-за сетевой задержки.
         history.length = 0;
-        history.push({ t: elapsedGuess, mult: startMult });
+        history.push({ t: 0, mult: 1 });
+        flyingStartedAt = performance.now();
         els.status.textContent = "Полёт!";
-        els.multiplier.textContent = `${startMult.toFixed(2)}x`;
+        els.multiplier.textContent = "1.00x";
         els.multiplier.classList.remove("is-crashed");
         AppState.setBalance(data.new_balance);
         startLocalAnimation();
