@@ -31,6 +31,14 @@
   let flyingStartedAt = null; // performance.now() в момент старта полёта
   let localAnimHandle = null;
   let pollHandle = null;
+  // Плавная коррекция дрейфа: вместо мгновенного "телепорта" flyingStartedAt
+  // (который на графике выглядит как резкий залом кривой вверх/вниз),
+  // растягиваем поправку на DRIFT_EASE_MS — кривая остаётся гладкой, даже
+  // если сама поправка ощутимая (единичный всплеск RTT на нестабильной сети).
+  const DRIFT_EASE_MS = 600;
+  let driftFromValue = null;  // flyingStartedAt на начало текущей коррекции
+  let driftTarget = null;     // куда едем (null = коррекции сейчас нет)
+  let driftStartAt = null;    // performance.now() начала коррекции
   // Инвалидирует ответы на устаревшие /state-запросы: если кэшаут и
   // новая ставка успевают произойти быстрее, чем вернётся ответ на
   // /state от ПРЕДЫДУЩЕГО полёта, этот ответ, придя позже, не должен
@@ -111,7 +119,13 @@
     stopLocalAnimation();
     function frame() {
       if (roundStatus !== "flying" || flyingStartedAt === null) return;
-      const elapsed = (performance.now() - flyingStartedAt) / 1000;
+      const now = performance.now();
+      if (driftTarget !== null) {
+        const t = Math.min(1, (now - driftStartAt) / DRIFT_EASE_MS);
+        flyingStartedAt = driftFromValue + (driftTarget - driftFromValue) * t;
+        if (t >= 1) driftTarget = null;
+      }
+      const elapsed = (now - flyingStartedAt) / 1000;
       const mult = Math.exp(GROWTH_RATE * elapsed);
       els.multiplier.textContent = `${mult.toFixed(2)}x`;
       els.multiplier.classList.remove("is-crashed");
@@ -157,10 +171,14 @@
           const serverSampleTime = t0 + rtt / 2;
           const elapsedGuess = Math.log(state.multiplier) / GROWTH_RATE;
           const newFlyingStartedAt = serverSampleTime - elapsedGuess * 1000;
-          // Синкаем только при заметном дрейфе (>80мс) — иначе микро-разницы
-          // от асимметрии RTT будут дёргать табло почём зря.
+          // Синкаем только при заметном дрейфе (>80мс), но саму коррекцию
+          // не применяем мгновенно — запускаем плавный переход (см. frame()
+          // в startLocalAnimation), чтобы не было залома на графике даже
+          // при большом одноразовом всплеске RTT.
           if (Math.abs(newFlyingStartedAt - flyingStartedAt) > 80) {
-            flyingStartedAt = newFlyingStartedAt;
+            driftFromValue = flyingStartedAt;
+            driftTarget = newFlyingStartedAt;
+            driftStartAt = performance.now();
           }
         }
       } catch (_) {
@@ -195,6 +213,7 @@
     stopPolling();
     roundStatus = "idle";
     flyingStartedAt = null;
+    driftTarget = null;
     history.length = 0;
     els.multiplier.classList.remove("is-crashed");
     els.multiplier.textContent = "1.00x";
@@ -293,6 +312,7 @@
         history.length = 0;
         history.push({ t: 0, mult: 1 });
         flyingStartedAt = performance.now();
+        driftTarget = null; // на всякий случай гасим незавершённую коррекцию прошлого полёта
         els.status.textContent = "Полёт!";
         els.multiplier.textContent = "1.00x";
         els.multiplier.classList.remove("is-crashed");
@@ -362,6 +382,7 @@
         const serverSampleTime = t0 + rtt / 2;
         const elapsedGuess = Math.log(state.multiplier) / GROWTH_RATE;
         flyingStartedAt = serverSampleTime - elapsedGuess * 1000;
+        driftTarget = null; // стартуем без незавершённой коррекции
         history.length = 0;
         els.status.textContent = "Полёт!";
         els.multiplier.textContent = `${state.multiplier.toFixed(2)}x`;
