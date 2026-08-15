@@ -180,6 +180,7 @@
   function updateActionButton() {
     els.actionBtn.classList.remove("is-cashout");
     els.actionBtn.disabled = false;
+    els.betValue.disabled = roundStatus === "flying";
 
     if (roundStatus === "idle" || roundStatus === "crashed") {
       els.actionText.textContent = "Поставить";
@@ -192,17 +193,40 @@
     renderOwnStatus();
   }
 
+  function clampBet(value) {
+    const n = Math.floor(Number(value));
+    if (!Number.isFinite(n)) return bet;
+    return Math.min(MAX_BET, Math.max(MIN_BET, n));
+  }
+
   els.betMinus.addEventListener("click", () => {
     if (roundStatus === "flying") return;
     bet = Math.max(MIN_BET, bet - BET_STEP);
-    els.betValue.textContent = bet;
+    els.betValue.value = bet;
     updateActionButton();
   });
   els.betPlus.addEventListener("click", () => {
     if (roundStatus === "flying") return;
     bet = Math.min(MAX_BET, bet + BET_STEP);
-    els.betValue.textContent = bet;
+    els.betValue.value = bet;
     updateActionButton();
+  });
+
+  els.betValue.addEventListener("input", () => {
+    els.betValue.value = els.betValue.value.replace(/[^0-9]/g, "");
+  });
+  els.betValue.addEventListener("change", () => {
+    bet = clampBet(els.betValue.value);
+    els.betValue.value = bet;
+    updateActionButton();
+  });
+  els.betValue.addEventListener("blur", () => {
+    bet = clampBet(els.betValue.value);
+    els.betValue.value = bet;
+    updateActionButton();
+  });
+  els.betValue.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") els.betValue.blur();
   });
 
   els.actionBtn.addEventListener("click", async () => {
@@ -268,13 +292,13 @@
 
   async function onEnter() {
     resizeCanvas();
-    els.betValue.textContent = bet;
+    els.betValue.value = bet;
     try {
       const state = await AppState.api("/api/aviator/state", { auth: true });
       if (state.has_round && state.status === "flying") {
         roundStatus = "flying";
         bet = state.bet;
-        els.betValue.textContent = bet;
+        els.betValue.value = bet;
         // Восстанавливаем локальный старт полёта из текущего множителя,
         // чтобы анимация продолжилась с правильного места после reload:
         // mult = exp(RATE*t) -> t = ln(mult)/RATE
