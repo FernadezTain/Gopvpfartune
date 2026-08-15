@@ -447,15 +447,7 @@ async def health():
     return {"ok": True, "time": int(time.time())}
 
 
-# ---------- самолётик (Aviator) ----------
-#
-# Раунд у каждого игрока свой личный: crash_point роллится ОДИН раз при
-# ставке и сразу пишется в БД (секретный — не отдаётся клиенту до краша).
-# Дальше мультипликатор — чистая функция времени: mult = exp(RATE * t).
-# Никакого фонового процесса не нужно — на serverless (Vercel) он бы всё
-# равно не пережил между вызовами. Вместо этого — "ленивое" завершение:
-# при каждом обращении к раунду сначала проверяем, не истекло ли уже
-# время полёта, и если да — фиксируем крах тут же, до остального.
+## ---------- самолётик (Aviator) ----------
 
 AVI_GROWTH_RATE = 0.16
 AVI_MIN_BET = 1
@@ -468,8 +460,10 @@ class AviatorBetBody(BaseModel):
 
 def avi_roll_crash_point() -> float:
     r = random.random()
+
     if r < 0.04:
         return 1.00
+
     return min(round(0.96 / (1 - r), 2), 500.0)
 
 
@@ -479,108 +473,400 @@ def avi_crash_after_seconds(crash_point: float) -> float:
 
 def avi_current_multiplier(started_flying_at, crash_point: float) -> float:
     elapsed = time.time() - started_flying_at.timestamp()
-    return round(math.exp(AVI_GROWTH_RATE * elapsed), 2)
+    multiplier = math.exp(AVI_GROWTH_RATE * elapsed)
+
+    return round(min(multiplier, crash_point), 2)
 
 
-def avi_settle_if_expired(cur, round_id, user_id, bet: int, started_flying_at, crash_point: float):
-    """Если время до crash_point уже прошло, а раунд всё ещё 'flying' —
-    фиксирует крах и списывает ставку как проигрыш. Вызывается перед любой
-    операцией с раундом, чтобы не полагаться на фоновый таймер."""
+def avi_get_user_active_bet(cur, user_id):
+    """
+    Возвращает активную ставку пользователя вместе с данными раунда.
+    Новая схема:
+        aviator_rounds = общий раунд
+        aviator_bets   = ставка пользователя
+    """
+    cur.execute("""
+        SELECT
+            r.round_id,
+            r.status,
+            r.started_flying_at,
+            r.crash_point,
+            b.bet_id,
+            b.bet,
+            b.status,
+            b.cashout_multiplier,
+            b.payout
+        FROM aviator_bets b
+        JOIN aviator_rounds r
+            ON r.round_id = b.round_id
+        WHERE b.user_id = %s
+          AND b.status = 'pending'
+          AND r.status = 'flying'
+        ORDER BY b.created_at DESC
+        LIMIT 1
+    """, (user_id,))
+
+    return cur.fetchone()
+
+
+def avi_settle_if_expired(cur, round_id, user_id, bet_id, bet,
+                          started_flying_at, crash_point):
+    """
+    Если самолётик уже должен был разбиться —
+    закрываем раунд и проигрываем ставку пользователя.
+    """
+
+    if not started_flying_at or crash_point is None:
+        return False
+
     elapsed = time.time() - started_flying_at.timestamp()
-    if elapsed < avi_crash_after_seconds(crash_point):
-        return False  # ещё летит
 
-    cur.execute(
-        "UPDATE aviator_rounds SET status='crashed', crashed_at=now() WHERE round_id=%s AND status='flying'",
-        (round_id,),
-    )
-    if cur.rowcount:  # именно мы закрыли раунд первыми (не гонка с cashout)
-        cur.execute("SELECT balance FROM user_chances WHERE user_id=%s", (user_id,))
+    if elapsed < avi_crash_after_seconds(crash_point):
+        return False
+
+    # Закрываем общий раунд.
+    cur.execute("""
+        UPDATE aviator_rounds
+        SET status = 'crashed',
+            crashed_at = now()
+        WHERE round_id = %s
+          AND status = 'flying'
+    """, (round_id,))
+
+    round_closed = cur.rowcount > 0
+
+    # В любом случае помечаем конкретную ставку проигранной,
+    # если она всё ещё pending.
+    cur.execute("""
+        UPDATE aviator_bets
+        SET status = 'lost',
+            payout = 0
+        WHERE bet_id = %s
+          AND status = 'pending'
+    """, (bet_id,))
+
+    bet_closed = cur.rowcount > 0
+
+    if bet_closed:
+        cur.execute("""
+            SELECT balance
+            FROM user_chances
+            WHERE user_id = %s
+        """, (user_id,))
+
         row = cur.fetchone()
         balance_after = row[0] if row else 0
-        cur.execute(
-            """INSERT INTO game_rounds
-               (game_round_id, user_id, game_type, bet, result_label, payout, balance_change, balance_after)
-               VALUES (%s, %s, 'aviator', %s, %s, 0, %s, %s)""",
-            (round_id, user_id, bet, f"{crash_point}x", -bet, balance_after),
-        )
-    return True
+
+        cur.execute("""
+            INSERT INTO game_rounds
+                (
+                    game_round_id,
+                    user_id,
+                    game_type,
+                    bet,
+                    result_label,
+                    payout,
+                    balance_change,
+                    balance_after
+                )
+            VALUES
+                (%s, %s, 'aviator', %s, %s, 0, %s, %s)
+        """, (
+            str(uuid.uuid4()),
+            user_id,
+            bet,
+            f"{crash_point}x",
+            -bet,
+            balance_after
+        ))
+
+    return round_closed or bet_closed
 
 
 @app.post("/api/aviator/bet")
-async def aviator_bet(body: AviatorBetBody, token: str = Depends(bearer_token)):
+async def aviator_bet(
+    body: AviatorBetBody,
+    token: str = Depends(bearer_token)
+):
     with db() as conn:
         user = require_session(conn, token)
-        user_id, username = user["user_id"], user["username"]
+        user_id = user["user_id"]
+        username = user["username"]
+
         cur = conn.cursor()
 
-        cur.execute(
-            "SELECT round_id, bet, status, started_flying_at, crash_point FROM aviator_rounds "
-            "WHERE user_id=%s AND status='flying' ORDER BY started_flying_at DESC LIMIT 1",
-            (user_id,),
-        )
-        active = cur.fetchone()
-        if active:
-            avi_settle_if_expired(cur, active[0], user_id, active[1], active[3], active[4])
-            cur.execute("SELECT status FROM aviator_rounds WHERE round_id=%s", (active[0],))
-            still_flying = cur.fetchone()[0] == "flying"
-            if still_flying:
-                cur.close()
-                raise HTTPException(status_code=400, detail="У вас уже есть активный полёт")
+        # --------------------------------------------------
+        # 1. Проверяем, нет ли уже активной ставки пользователя
+        # --------------------------------------------------
 
-        cur.execute("SELECT balance FROM user_chances WHERE user_id=%s", (user_id,))
+        active = avi_get_user_active_bet(cur, user_id)
+
+        if active:
+            (
+                round_id,
+                status,
+                started_flying_at,
+                crash_point,
+                bet_id,
+                old_bet,
+                bet_status,
+                cashout_multiplier,
+                payout,
+            ) = active
+
+            avi_settle_if_expired(
+                cur,
+                round_id,
+                user_id,
+                bet_id,
+                old_bet,
+                started_flying_at,
+                crash_point,
+            )
+
+            # Проверяем ещё раз.
+            active = avi_get_user_active_bet(cur, user_id)
+
+            if active:
+                cur.close()
+                raise HTTPException(
+                    status_code=400,
+                    detail="У вас уже есть активная ставка"
+                )
+
+        # --------------------------------------------------
+        # 2. Ищем текущий общий раунд самолётика
+        # --------------------------------------------------
+
+        cur.execute("""
+            SELECT
+                round_id,
+                status,
+                started_flying_at,
+                crash_point
+            FROM aviator_rounds
+            WHERE status = 'flying'
+            ORDER BY started_flying_at DESC
+            LIMIT 1
+        """)
+
+        round_row = cur.fetchone()
+
+        # --------------------------------------------------
+        # 3. Если общего раунда нет — создаём его
+        # --------------------------------------------------
+
+        if not round_row:
+            round_id = str(uuid.uuid4())
+            crash_point = avi_roll_crash_point()
+
+            cur.execute("""
+                INSERT INTO aviator_rounds
+                    (
+                        round_id,
+                        status,
+                        crash_point,
+                        started_flying_at
+                    )
+                VALUES
+                    (%s, 'flying', %s, now())
+            """, (round_id, crash_point))
+
+            cur.execute("""
+                SELECT
+                    round_id,
+                    status,
+                    started_flying_at,
+                    crash_point
+                FROM aviator_rounds
+                WHERE round_id = %s
+            """, (round_id,))
+
+            round_row = cur.fetchone()
+
+        else:
+            round_id, round_status, started_flying_at, crash_point = round_row
+
+            # Если существующий раунд уже должен был разбиться,
+            # закрываем его и создаём новый.
+            if started_flying_at and crash_point is not None:
+                elapsed = time.time() - started_flying_at.timestamp()
+
+                if elapsed >= avi_crash_after_seconds(crash_point):
+                    cur.execute("""
+                        UPDATE aviator_rounds
+                        SET status = 'crashed',
+                            crashed_at = now()
+                        WHERE round_id = %s
+                          AND status = 'flying'
+                    """, (round_id,))
+
+                    round_id = str(uuid.uuid4())
+                    crash_point = avi_roll_crash_point()
+
+                    cur.execute("""
+                        INSERT INTO aviator_rounds
+                            (
+                                round_id,
+                                status,
+                                crash_point,
+                                started_flying_at
+                            )
+                        VALUES
+                            (%s, 'flying', %s, now())
+                    """, (round_id, crash_point))
+
+                    cur.execute("""
+                        SELECT
+                            round_id,
+                            status,
+                            started_flying_at,
+                            crash_point
+                        FROM aviator_rounds
+                        WHERE round_id = %s
+                    """, (round_id,))
+
+                    round_row = cur.fetchone()
+
+        round_id, round_status, started_flying_at, crash_point = round_row
+
+        # --------------------------------------------------
+        # 4. Проверяем баланс
+        # --------------------------------------------------
+
+        cur.execute("""
+            SELECT balance
+            FROM user_chances
+            WHERE user_id = %s
+        """, (user_id,))
+
         row = cur.fetchone()
         balance = row[0] if row else 0
+
         if balance < body.bet:
             cur.close()
-            raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
+            raise HTTPException(
+                status_code=400,
+                detail="Недостаточно шансов на балансе"
+            )
+
+        # --------------------------------------------------
+        # 5. Списываем ставку
+        # --------------------------------------------------
 
         new_balance = balance - body.bet
-        cur.execute("UPDATE user_chances SET balance=%s WHERE user_id=%s", (new_balance, user_id))
 
-        crash_point = avi_roll_crash_point()
-        round_id = str(uuid.uuid4())
-        cur.execute(
-            """INSERT INTO aviator_rounds (round_id, user_id, bet, status, crash_point, started_flying_at)
-               VALUES (%s, %s, %s, 'flying', %s, now())""",
-            (round_id, user_id, body.bet, crash_point),
-        )
+        cur.execute("""
+            UPDATE user_chances
+            SET balance = %s
+            WHERE user_id = %s
+        """, (new_balance, user_id))
+
+        # --------------------------------------------------
+        # 6. Создаём ставку пользователя
+        # --------------------------------------------------
+
+        bet_id = str(uuid.uuid4())
+
+        cur.execute("""
+            INSERT INTO aviator_bets
+                (
+                    bet_id,
+                    round_id,
+                    user_id,
+                    username,
+                    bet,
+                    status,
+                    payout
+                )
+            VALUES
+                (%s, %s, %s, %s, %s, 'pending', 0)
+        """, (
+            bet_id,
+            round_id,
+            user_id,
+            username,
+            body.bet
+        ))
+
         cur.close()
 
-    return {"ok": True, "round_id": round_id, "new_balance": new_balance}
+    return {
+        "ok": True,
+        "round_id": str(round_id),
+        "bet_id": str(bet_id),
+        "bet": body.bet,
+        "new_balance": new_balance
+    }
 
 
 @app.get("/api/aviator/state")
 async def aviator_state(token: str = Depends(bearer_token)):
     with db() as conn:
         user = require_session(conn, token)
+        user_id = user["user_id"]
+
         cur = conn.cursor()
-        cur.execute(
-            "SELECT round_id, bet, status, started_flying_at, crash_point FROM aviator_rounds "
-            "WHERE user_id=%s ORDER BY started_flying_at DESC LIMIT 1",
-            (user["user_id"],),
-        )
-        row = cur.fetchone()
-        if not row:
+
+        active = avi_get_user_active_bet(cur, user_id)
+
+        if not active:
             cur.close()
             return {"has_round": False}
 
-        round_id, bet, status, started_flying_at, crash_point = row
-        if status == "flying":
-            avi_settle_if_expired(cur, round_id, user["user_id"], bet, started_flying_at, crash_point)
-            cur.execute("SELECT status FROM aviator_rounds WHERE round_id=%s", (round_id,))
-            status = cur.fetchone()[0]
+        (
+            round_id,
+            status,
+            started_flying_at,
+            crash_point,
+            bet_id,
+            bet,
+            bet_status,
+            cashout_multiplier,
+            payout,
+        ) = active
+
+        # Проверяем, не наступил ли crash.
+        avi_settle_if_expired(
+            cur,
+            round_id,
+            user_id,
+            bet_id,
+            bet,
+            started_flying_at,
+            crash_point,
+        )
+
+        # Получаем ставку ещё раз после возможного crash.
+        active = avi_get_user_active_bet(cur, user_id)
+
         cur.close()
 
-    if status != "flying":
-        return {"has_round": False}
+        if not active:
+            return {"has_round": False}
+
+        (
+            round_id,
+            status,
+            started_flying_at,
+            crash_point,
+            bet_id,
+            bet,
+            bet_status,
+            cashout_multiplier,
+            payout,
+        ) = active
 
     return {
         "has_round": True,
         "round_id": str(round_id),
+        "bet_id": str(bet_id),
         "status": status,
         "bet": bet,
-        "multiplier": avi_current_multiplier(started_flying_at, crash_point),
+        "multiplier": avi_current_multiplier(
+            started_flying_at,
+            crash_point
+        ),
     }
 
 
@@ -589,50 +875,177 @@ async def aviator_cashout(token: str = Depends(bearer_token)):
     with db() as conn:
         user = require_session(conn, token)
         user_id = user["user_id"]
+
         cur = conn.cursor()
 
-        cur.execute(
-            "SELECT round_id, bet, status, started_flying_at, crash_point FROM aviator_rounds "
-            "WHERE user_id=%s ORDER BY started_flying_at DESC LIMIT 1",
-            (user_id,),
+        # --------------------------------------------------
+        # 1. Получаем активную ставку
+        # --------------------------------------------------
+
+        active = avi_get_user_active_bet(cur, user_id)
+
+        if not active:
+            cur.close()
+            raise HTTPException(
+                status_code=400,
+                detail="Активного полёта нет"
+            )
+
+        (
+            round_id,
+            status,
+            started_flying_at,
+            crash_point,
+            bet_id,
+            bet,
+            bet_status,
+            cashout_multiplier,
+            old_payout,
+        ) = active
+
+        # --------------------------------------------------
+        # 2. Проверяем crash
+        # --------------------------------------------------
+
+        avi_settle_if_expired(
+            cur,
+            round_id,
+            user_id,
+            bet_id,
+            bet,
+            started_flying_at,
+            crash_point,
         )
-        row = cur.fetchone()
-        if not row:
+
+        # Проверяем ставку после settle.
+        cur.execute("""
+            SELECT
+                status,
+                bet
+            FROM aviator_bets
+            WHERE bet_id = %s
+        """, (bet_id,))
+
+        bet_row = cur.fetchone()
+
+        if not bet_row or bet_row[0] != "pending":
             cur.close()
-            raise HTTPException(status_code=400, detail="Активного полёта нет")
+            raise HTTPException(
+                status_code=400,
+                detail="Самолётик уже разбился"
+            )
 
-        round_id, bet, status, started_flying_at, crash_point = row
-        if status == "flying":
-            avi_settle_if_expired(cur, round_id, user_id, bet, started_flying_at, crash_point)
-            cur.execute("SELECT status FROM aviator_rounds WHERE round_id=%s", (round_id,))
-            status = cur.fetchone()[0]
+        # --------------------------------------------------
+        # 3. Считаем текущий множитель
+        # --------------------------------------------------
 
-        if status != "flying":
+        current_mult = avi_current_multiplier(
+            started_flying_at,
+            crash_point
+        )
+
+        # Если множитель уже дошёл до crash point — проигрыш.
+        if current_mult >= crash_point:
+            avi_settle_if_expired(
+                cur,
+                round_id,
+                user_id,
+                bet_id,
+                bet,
+                started_flying_at,
+                crash_point,
+            )
+
             cur.close()
-            raise HTTPException(status_code=400, detail="Самолётик уже разбился")
 
-        current_mult = avi_current_multiplier(started_flying_at, crash_point)
+            raise HTTPException(
+                status_code=400,
+                detail="Самолётик уже разбился"
+            )
+
         payout = int(bet * current_mult)
 
-        cur.execute(
-            "UPDATE aviator_rounds SET status='cashed_out', cashout_multiplier=%s, payout=%s WHERE round_id=%s AND status='flying'",
-            (current_mult, payout, round_id),
-        )
-        if not cur.rowcount:
-            # проиграли гонку с ленивым завершением по времени — кто-то (следующий запрос) успел раньше
-            cur.close()
-            raise HTTPException(status_code=400, detail="Самолётик уже разбился")
+        # --------------------------------------------------
+        # 4. Атомарно фиксируем cashout
+        # --------------------------------------------------
 
-        cur.execute("SELECT balance FROM user_chances WHERE user_id=%s", (user_id,))
-        balance = cur.fetchone()[0]
+        cur.execute("""
+            UPDATE aviator_bets
+            SET
+                status = 'cashed_out',
+                cashout_multiplier = %s,
+                payout = %s
+            WHERE bet_id = %s
+              AND status = 'pending'
+        """, (
+            current_mult,
+            payout,
+            bet_id
+        ))
+
+        if not cur.rowcount:
+            cur.close()
+            raise HTTPException(
+                status_code=400,
+                detail="Ставка уже обработана"
+            )
+
+        # --------------------------------------------------
+        # 5. Возвращаем выигрыш
+        # --------------------------------------------------
+
+        cur.execute("""
+            SELECT balance
+            FROM user_chances
+            WHERE user_id = %s
+        """, (user_id,))
+
+        balance_row = cur.fetchone()
+        balance = balance_row[0] if balance_row else 0
+
         new_balance = balance + payout
-        cur.execute("UPDATE user_chances SET balance=%s WHERE user_id=%s", (new_balance, user_id))
-        cur.execute(
-            """INSERT INTO game_rounds
-               (game_round_id, user_id, game_type, bet, result_label, payout, balance_change, balance_after)
-               VALUES (%s, %s, 'aviator', %s, %s, %s, %s, %s)""",
-            (round_id, user_id, bet, f"{current_mult}x", payout, payout - bet, new_balance),
-        )
+
+        cur.execute("""
+            UPDATE user_chances
+            SET balance = %s
+            WHERE user_id = %s
+        """, (new_balance, user_id))
+
+        # --------------------------------------------------
+        # 6. Записываем общую историю
+        # --------------------------------------------------
+
+        cur.execute("""
+            INSERT INTO game_rounds
+                (
+                    game_round_id,
+                    user_id,
+                    game_type,
+                    bet,
+                    result_label,
+                    payout,
+                    balance_change,
+                    balance_after
+                )
+            VALUES
+                (%s, %s, 'aviator', %s, %s, %s, %s, %s)
+        """, (
+            str(uuid.uuid4()),
+            user_id,
+            bet,
+            f"{current_mult}x",
+            payout,
+            payout - bet,
+            new_balance
+        ))
+
         cur.close()
 
-    return {"ok": True, "multiplier": current_mult, "payout": payout, "new_balance": new_balance}
+    return {
+        "ok": True,
+        "round_id": str(round_id),
+        "bet_id": str(bet_id),
+        "multiplier": current_mult,
+        "payout": payout,
+        "new_balance": new_balance
+    }
