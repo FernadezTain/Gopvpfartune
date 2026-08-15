@@ -24,6 +24,7 @@ Environment Variables, НЕ через export/.env):
 import os
 import time
 import math
+import uuid
 import random
 import secrets
 import logging
@@ -112,7 +113,6 @@ def ensure_tables():
         return
     with db() as conn:
         cur = conn.cursor()
-        cur.execute('CREATE EXTENSION IF NOT EXISTS pgcrypto')
         cur.execute("""
             CREATE TABLE IF NOT EXISTS user_chances (
                 user_id BIGINT PRIMARY KEY,
@@ -151,7 +151,7 @@ def ensure_tables():
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS game_rounds (
-                game_round_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                game_round_id UUID PRIMARY KEY,
                 user_id BIGINT,
                 game_type TEXT,
                 bet INTEGER,
@@ -164,7 +164,7 @@ def ensure_tables():
         """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS aviator_rounds (
-                round_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                round_id UUID PRIMARY KEY,
                 user_id BIGINT,
                 bet INTEGER,
                 status TEXT DEFAULT 'flying',
@@ -539,12 +539,12 @@ async def aviator_bet(body: AviatorBetBody, token: str = Depends(bearer_token)):
         cur.execute("UPDATE user_chances SET balance=%s WHERE user_id=%s", (new_balance, user_id))
 
         crash_point = avi_roll_crash_point()
+        round_id = str(uuid.uuid4())
         cur.execute(
-            """INSERT INTO aviator_rounds (user_id, bet, status, crash_point, started_flying_at)
-               VALUES (%s, %s, 'flying', %s, now()) RETURNING round_id""",
-            (user_id, body.bet, crash_point),
+            """INSERT INTO aviator_rounds (round_id, user_id, bet, status, crash_point, started_flying_at)
+               VALUES (%s, %s, %s, 'flying', %s, now())""",
+            (round_id, user_id, body.bet, crash_point),
         )
-        round_id = str(cur.fetchone()[0])
         cur.close()
 
     return {"ok": True, "round_id": round_id, "new_balance": new_balance}
