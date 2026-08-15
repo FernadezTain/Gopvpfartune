@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Колесо шансов — Gopvp</title>
+<title>Go pvp — Игры</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -23,8 +24,11 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="brand-mark">🎁</span>
+    <span class="brand-mark">🎮</span>
     <span class="brand-text">Go&nbsp;pvp</span>
+  </div>
+  <div id="backBtn" class="back-btn hidden">
+    <span class="back-arrow">←</span><span>Назад</span>
   </div>
   <div id="balanceChip" class="balance-chip hidden">
     <span class="balance-label">Баланс</span>
@@ -37,7 +41,7 @@
 <main id="loginScreen" class="login-screen hidden">
   <div class="login-card">
     <p class="eyebrow">Вход через Telegram</p>
-    <h1 class="login-title">Крутите колесо,<br />множьте шансы</h1>
+    <h1 class="login-title">Крутите колесо,<br />запускайте самолёт</h1>
     <p class="login-sub">Введите свой Telegram ID — мы пришлём код подтверждения прямо в бота.</p>
 
     <form id="idForm" class="login-form">
@@ -57,6 +61,23 @@
     </form>
 
     <p id="loginError" class="login-error hidden"></p>
+  </div>
+</main>
+
+<!-- ГЛАВНОЕ МЕНЮ -->
+<main id="mainMenuScreen" class="menu-screen hidden">
+  <p class="menu-title">Игры</p>
+  <div class="game-grid">
+    <button class="game-card game-card-wheel" data-target="wheelScreen">
+      <span class="game-card-icon">🎡</span>
+      <span class="game-card-name">Колесо Фортуны</span>
+      <span class="game-card-sub">Крути и множь шансы</span>
+    </button>
+    <button class="game-card game-card-aviator" data-target="aviatorScreen">
+      <span class="game-card-icon">✈️</span>
+      <span class="game-card-name">Самолётик</span>
+      <span class="game-card-sub">Успей забрать до краша</span>
+    </button>
   </div>
 </main>
 
@@ -97,16 +118,94 @@
     <ul class="legend-list" id="legendList"></ul>
   </section>
 
-  <section class="history-panel">
-    <p class="legend-title">Последние вращения</p>
-    <ul id="historyList" class="history-list">
-      <li class="history-empty">Пока пусто — сделайте первый прокрут.</li>
+</main>
+
+<!-- ЭКРАН САМОЛЁТИКА -->
+<main id="aviatorScreen" class="aviator-screen hidden">
+
+  <section class="aviator-stage">
+    <canvas id="aviatorCanvas" class="aviator-canvas"></canvas>
+    <div id="aviatorMultiplier" class="aviator-multiplier">1.00x</div>
+    <div id="aviatorStatus" class="aviator-status">Ожидание ставок…</div>
+  </section>
+
+  <section class="control-panel">
+    <div class="bet-control">
+      <span class="bet-label">Ставка</span>
+      <div class="bet-stepper">
+        <button type="button" id="aviBetMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
+        <span id="aviBetValue" class="bet-value">5</span>
+        <button type="button" id="aviBetPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+      </div>
+      <span class="bet-unit">шансов</span>
+    </div>
+
+    <button id="aviActionBtn" class="btn btn-spin">
+      <span class="btn-spin-text" id="aviActionText">Поставить</span>
+      <span class="btn-spin-cost" id="aviActionCost">−5 шансов</span>
+    </button>
+
+    <p id="aviError" class="spin-error hidden"></p>
+  </section>
+
+  <section class="legend">
+    <p class="legend-title">Игроки в раунде</p>
+    <ul id="aviPlayersList" class="history-list">
+      <li class="history-empty">Пока никто не поставил.</li>
     </ul>
   </section>
 
 </main>
 
+<!-- ПРОФИЛЬ -->
+<main id="profileScreen" class="profile-screen hidden">
+  <div class="profile-card">
+    <div class="profile-avatar">🙂</div>
+    <p id="profileName" class="profile-name">—</p>
+    <p id="profileId" class="profile-id">ID: —</p>
+    <div class="profile-balance">
+      <span class="balance-label">Баланс</span>
+      <span id="profileBalance" class="balance-value">0</span>
+      <span class="balance-unit">шанс.</span>
+    </div>
+  </div>
+  <button id="openHistoryBtn" class="btn btn-primary btn-history">История игр</button>
+  <button id="logoutBtn" class="btn btn-ghost">Выйти из аккаунта</button>
+</main>
+
+<!-- ИСТОРИЯ ИГР -->
+<main id="historyScreen" class="history-screen hidden">
+  <p class="menu-title">История игр</p>
+  <div class="history-table-wrap">
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Игра</th>
+          <th>ID игры</th>
+          <th>Ставка</th>
+          <th>Результат</th>
+          <th>Баланс</th>
+        </tr>
+      </thead>
+      <tbody id="historyTableBody">
+        <tr><td colspan="5" class="history-empty">Загрузка…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<!-- НИЖНЯЯ НАВИГАЦИЯ -->
+<nav id="bottomNav" class="bottom-nav hidden">
+  <button class="nav-btn is-active" id="navHome" data-target="mainMenuScreen">
+    <span class="nav-icon">🏠</span><span>Главная</span>
+  </button>
+  <button class="nav-btn" id="navProfile" data-target="profileScreen">
+    <span class="nav-icon">👤</span><span>Профиль</span>
+  </button>
+</nav>
+
 <script src="config.js"></script>
 <script src="app.js"></script>
+<script src="aviator.js"></script>
 </body>
 </html>
