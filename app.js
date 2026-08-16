@@ -29,6 +29,7 @@
 
     loginScreen: document.getElementById("loginScreen"),
     mainMenuScreen: document.getElementById("mainMenuScreen"),
+    casesScreen: document.getElementById("casesScreen"),
     wheelScreen: document.getElementById("wheelScreen"),
     aviatorScreen: document.getElementById("aviatorScreen"),
     blackjackScreen: document.getElementById("blackjackScreen"),
@@ -83,7 +84,7 @@
 
   // ---------- роутер экранов ----------
 
-  const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
+  const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
   const screenStack = ["mainMenuScreen"];
   let lastTopLevelScreen = "mainMenuScreen";
 
@@ -118,7 +119,7 @@
     }
 
     [
-      "loginScreen", "mainMenuScreen", "wheelScreen",
+      "loginScreen", "mainMenuScreen", "casesScreen", "wheelScreen",
       "aviatorScreen", "blackjackScreen", "profileScreen", "historyScreen",
     ].forEach((id) => document.getElementById(id).classList.add("hidden"));
 
@@ -595,7 +596,18 @@
     let loggedIn = false;
     if (localStorage.getItem(TOKEN_KEY)) {
       try {
-        await enterApp();
+        // Автовход по сохранённой сессии ограничен по времени: если
+        // /api/me по какой-то причине зависнет (например, "холодный
+        // старт" serverless-функции или проблемный preflight-запрос),
+        // мы не должны держать прелоадер на экране бесконечно — через
+        // AUTOLOGIN_TIMEOUT_MS сдаёмся и показываем форму входа.
+        const AUTOLOGIN_TIMEOUT_MS = 8000;
+        await Promise.race([
+          enterApp(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Таймаут автовхода")), AUTOLOGIN_TIMEOUT_MS)
+          ),
+        ]);
         loggedIn = true;
       } catch (_) {
         localStorage.removeItem(TOKEN_KEY);
