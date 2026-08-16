@@ -1,276 +1,280 @@
 (function () {
   "use strict";
 
-  // Ждём, пока app.js создаст window.AppState (порядок подключения
-  // скриптов в index.html: config.js -> app.js -> aviator.js -> cases.js).
-  const AppState = window.AppState;
+  // Этот файл раньше был случайной копией app.js (из-за чего экран кейсов
+  // не работал вообще — а то, что было видно на экране, это просто
+  // статичная разметка из index.html без какой-либо логики). Здесь —
+  // настоящая реализация:
+  //
+  //   1. Пользователь жмёт "Открыть кейс".
+  //   2. Сервер (POST /api/cases/open) сам решает выигрыш — вес секций
+  //      известен только бэкенду — и отдаёт на фронт item_index + label.
+  //   3. Фронт строит длинную ленту предметов (случайные для "мусора" +
+  //      ОБЯЗАТЕЛЬНО серверный предмет на фиксированной позиции) и
+  //      анимирует прокрутку СПРАВА НАЛЕВО, которая тормозит и
+  //      останавливается ровно на предмете с сервера под указателем.
+  //
+  // Фронт никогда сам не решает, что выпало — только красиво
+  // визуализирует уже принятое сервером решение.
 
   const els = {
-    listCardBtn: document.getElementById("caseCardBtn"),
-    listPrice: document.getElementById("caseListPrice"),
+    caseCardBtn: document.getElementById("caseCardBtn"),
+    caseListPrice: document.getElementById("caseListPrice"),
 
-    detailScreen: document.getElementById("caseDetailScreen"),
-    heroName: document.getElementById("caseHeroName"),
-    openBtn: document.getElementById("caseOpenBtn"),
-    openCost: document.getElementById("caseOpenCost"),
-    error: document.getElementById("caseError"),
-    resultBadge: document.getElementById("caseResultBadge"),
-    itemsGrid: document.getElementById("caseItemsGrid"),
-    recentGamesList: document.getElementById("caseRecentGamesList"),
+    caseDetailScreen: document.getElementById("caseDetailScreen"),
+    caseHeroName: document.getElementById("caseHeroName"),
 
-    reel: document.getElementById("caseReel"),
-    reelViewport: document.querySelector("#caseReel .case-reel-viewport"),
-    reelTrack: document.getElementById("caseReelTrack"),
+    caseReel: document.getElementById("caseReel"),
+    caseReelTrack: document.getElementById("caseReelTrack"),
+
+    caseOpenBtn: document.getElementById("caseOpenBtn"),
+    caseOpenCost: document.getElementById("caseOpenCost"),
+    caseError: document.getElementById("caseError"),
+    caseResultBadge: document.getElementById("caseResultBadge"),
+
+    caseItemsGrid: document.getElementById("caseItemsGrid"),
+    caseRecentGamesList: document.getElementById("caseRecentGamesList"),
   };
 
-  const RARITY_CLASS = {
-    common: "rarity-common",
-    uncommon: "rarity-uncommon",
-    rare: "rarity-rare",
-    epic: "rarity-epic",
-    legendary: "rarity-legendary",
-    mythic: "rarity-mythic",
-  };
+  // Геометрия ленты — должна соответствовать style.css (.case-reel-item,
+  // .case-reel-track): ширина карточки 88px + gap 8px между карточками,
+  // паддинг трека 8px с каждой стороны.
+  const ITEM_WIDTH = 88;
+  const ITEM_GAP = 8;
+  const ITEM_STEP = ITEM_WIDTH + ITEM_GAP;
+  const TRACK_PADDING = 8;
 
-  let caseConfig = null;   // { cost, items: [{label, value, weight, rarity}] }
-  let configPromise = null;
+  const REEL_LENGTH = 60; // сколько карточек рисуем в ленте
+  const LANDING_POS = 48; // на какой по счёту карточке должна остановиться лента
+  const SPIN_MS = 5200; // должно совпадать с transition-duration ниже
+
+  let caseData = null; // { cost, items: [{label, value, weight, rarity}] }
   let opening = false;
 
-  function showError(msg) {
-    els.error.textContent = msg;
-    els.error.classList.remove("hidden");
-  }
-  function hideError() {
-    els.error.classList.add("hidden");
+  function getEl(id) {
+    return document.getElementById(id);
   }
 
-  function setBusy(btn, busy, textEl, busyText, idleText) {
-    btn.disabled = busy;
-    btn.classList.toggle("is-busy", busy);
-    if (textEl) textEl.textContent = busy ? busyText : idleText;
+  async function loadCaseData(force) {
+    if (caseData && !force) return caseData;
+    caseData = await window.AppState.api("/api/cases", { auth: true });
+    return caseData;
   }
 
-  // ---------- загрузка конфигурации кейса (один раз, дальше — из кэша) ----------
-
-  function loadCaseConfig() {
-    if (caseConfig) return Promise.resolve(caseConfig);
-    if (!configPromise) {
-      configPromise = AppState.api("/api/cases", { auth: true })
-        .then((data) => {
-          caseConfig = data;
-          return data;
-        })
-        .catch((err) => {
-          configPromise = null; // разрешаем повторить попытку при следующем входе
-          throw err;
-        });
-    }
-    return configPromise;
-  }
-
-  function renderItemsGrid(cost, items) {
-    els.itemsGrid.innerHTML = "";
-    items.forEach((item, idx) => {
-      const chancePct = (item.weight / 10).toFixed(item.weight < 10 ? 3 : item.weight < 100 ? 2 : 1);
-      const card = document.createElement("div");
-      card.className = "case-item " + (RARITY_CLASS[item.rarity] || "rarity-common");
-      card.dataset.itemIndex = String(idx);
-      card.innerHTML = `
-        <span class="case-item-chance">шанс ${chancePct}%</span>
-        <span class="case-item-gem" aria-hidden="true"></span>
-        <span class="case-item-name">${item.value > 0 ? item.value + " шансов" : "Пусто"}</span>
-        ${item.value > 0 ? `<span class="case-item-value">+${item.value}</span>` : ""}
-      `;
-      els.itemsGrid.appendChild(card);
-    });
-  }
-
-  // ---------- вход на экран списка кейсов ----------
+  // ---------- список кейсов ----------
 
   async function onEnter() {
     try {
-      const data = await loadCaseConfig();
-      if (els.listPrice) els.listPrice.textContent = data.cost;
+      const data = await loadCaseData();
+      if (els.caseListPrice) els.caseListPrice.textContent = data.cost;
     } catch (_) {
-      // список кейсов не критичен к ошибке загрузки конфига — цена
-      // просто останется дефолтной, а деталка при входе покажет ошибку сама
+      // список кейсов не критичен — если не подгрузилось, просто останется
+      // дефолтная цена из разметки
     }
   }
 
-  // ---------- вход на экран открытия кейса ----------
+  if (els.caseCardBtn) {
+    els.caseCardBtn.addEventListener("click", openCaseDetailScreen);
+  }
 
-  async function openDetailScreen() {
-    hideError();
-    els.resultBadge.classList.add("hidden");
-    els.reel.classList.add("hidden");
-    els.reelTrack.innerHTML = "";
-    els.itemsGrid.innerHTML = `<p class="history-empty">Загрузка…</p>`;
+  async function openCaseDetailScreen() {
+    window.AppState.navigateTo("caseDetailScreen");
 
-    await AppState.navigateTo("caseDetailScreen");
+    resetDetailScreen();
 
     try {
-      const data = await loadCaseConfig();
-      els.heroName.textContent = "Стартовый кейс";
-      els.openCost.textContent = `−${data.cost} шансов`;
-      renderItemsGrid(data.cost, data.items);
+      const data = await loadCaseData();
+      if (els.caseOpenCost) els.caseOpenCost.textContent = `−${data.cost} шансов`;
+      renderItemsGrid(data.items);
+      window.AppState.fetchRecentGames(els.caseRecentGamesList, "case");
     } catch (err) {
-      els.itemsGrid.innerHTML = "";
-      showError(err.message || "Не удалось загрузить кейс");
+      showCaseError(err.message);
     }
-
-    AppState.fetchRecentGames(els.recentGamesList, "case");
   }
 
-  if (els.listCardBtn) {
-    els.listCardBtn.addEventListener("click", () => {
-      openDetailScreen();
+  function resetDetailScreen() {
+    hideCaseError();
+    if (els.caseResultBadge) els.caseResultBadge.classList.add("hidden");
+    if (els.caseReel) els.caseReel.classList.add("hidden");
+    if (els.caseReelTrack) {
+      els.caseReelTrack.style.transition = "none";
+      els.caseReelTrack.style.transform = "translateX(0px)";
+      els.caseReelTrack.innerHTML = "";
+    }
+    if (els.caseItemsGrid) {
+      els.caseItemsGrid.querySelectorAll(".case-item.is-won").forEach((el) => el.classList.remove("is-won"));
+    }
+  }
+
+  // ---------- содержимое кейса (таблица шансов) ----------
+
+  function renderItemsGrid(items) {
+    if (!els.caseItemsGrid) return;
+    els.caseItemsGrid.innerHTML = "";
+    items.forEach((item, idx) => {
+      const div = document.createElement("div");
+      div.className = `case-item rarity-${item.rarity}`;
+      div.dataset.index = String(idx);
+      const chance = (item.weight / 10).toFixed(1).replace(/\.0$/, "");
+      div.innerHTML = `
+        <span class="case-item-chance">${chance}%</span>
+        <span class="case-item-gem" aria-hidden="true"></span>
+        <span class="case-item-name">${escapeHtml(item.label)}</span>
+      `;
+      els.caseItemsGrid.appendChild(div);
     });
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
   }
 
   // ---------- лента прокрутки ----------
 
-  const REEL_ITEM_WIDTH = 88;
-  const REEL_ITEM_GAP = 8;
-  const REEL_STEP = REEL_ITEM_WIDTH + REEL_ITEM_GAP;
-  const REEL_LANDING_INDEX = 34;   // на этой позиции в ленте останавливается выигрыш
-  const REEL_TRAILING_ITEMS = 6;   // сколько карточек видно "после" выигрыша
-  const REEL_SPIN_MS = 4200;
-
-  function pickWeightedRandom(items) {
-    const totalWeight = items.reduce((s, i) => s + (i.weight || 1), 0);
-    let roll = Math.random() * totalWeight;
-    for (const item of items) {
-      roll -= item.weight || 1;
-      if (roll <= 0) return item;
-    }
-    return items[items.length - 1];
-  }
-
-  function reelItemEl(item) {
+  function buildReelCard(item) {
     const div = document.createElement("div");
-    div.className = "case-reel-item " + (RARITY_CLASS[item.rarity] || "rarity-common");
+    div.className = `case-reel-item rarity-${item.rarity}`;
     div.innerHTML = `
       <span class="case-item-gem" aria-hidden="true"></span>
-      <span class="case-reel-item-value">${item.value > 0 ? "+" + item.value : "Пусто"}</span>
+      <span class="case-reel-item-value">${escapeHtml(item.label)}</span>
     `;
     return div;
   }
 
-  // Строит ленту из случайных предметов (только для красоты прокрутки) и
-  // подставляет РЕАЛЬНЫЙ выигранный предмет (уже определённый сервером)
-  // строго на позицию REEL_LANDING_INDEX — анимация лишь показывает
-  // результат, который уже вычислен и сохранён на бэкенде.
-  function buildReel(allItems, landedItem) {
-    const total = REEL_LANDING_INDEX + REEL_TRAILING_ITEMS + 1;
-    els.reelTrack.innerHTML = "";
-    els.reelTrack.style.transition = "none";
-    els.reelTrack.style.transform = "translateX(0)";
-
-    for (let i = 0; i < total; i++) {
-      const item = i === REEL_LANDING_INDEX ? landedItem : pickWeightedRandom(allItems);
-      const el = reelItemEl(item);
-      el.dataset.index = String(i);
-      els.reelTrack.appendChild(el);
+  // Взвешенный случайный предмет — используется ТОЛЬКО для "проходных"
+  // карточек ленты (визуальный шум слева/справа от выигрыша), никогда для
+  // определения самого выигрыша — тот уже посчитан сервером.
+  function weightedRandomItem(items) {
+    const total = items.reduce((sum, it) => sum + it.weight, 0);
+    let r = Math.random() * total;
+    for (const it of items) {
+      r -= it.weight;
+      if (r <= 0) return it;
     }
+    return items[items.length - 1];
   }
 
-  function spinReelTo(landedIndex) {
-    return new Promise((resolve) => {
-      const viewportWidth = els.reelViewport.clientWidth;
-      // Небольшой случайный сдвиг внутри карточки — чтобы остановка не
-      // выглядела механически идеальной, но предмет всё равно чётко под указателем.
-      const jitter = (Math.random() - 0.5) * (REEL_ITEM_WIDTH * 0.3);
-      const targetX = -(landedIndex * REEL_STEP + REEL_STEP / 2 - viewportWidth / 2) + jitter;
+  function playOpenAnimation(items, winIndex) {
+    const winItem = items[winIndex];
 
-      // Даём браузеру отрисовать стартовое положение без transition,
-      // и только следующим кадром включаем анимацию — иначе transition
-      // "съест" и исходную установку transform: translateX(0).
+    const strip = [];
+    for (let i = 0; i < REEL_LENGTH; i++) {
+      strip.push(i === LANDING_POS ? winItem : weightedRandomItem(items));
+    }
+
+    els.caseReelTrack.innerHTML = "";
+    els.caseReelTrack.style.transition = "none";
+    els.caseReelTrack.style.transform = "translateX(0px)";
+
+    const fragment = document.createDocumentFragment();
+    strip.forEach((item) => fragment.appendChild(buildReelCard(item)));
+    els.caseReelTrack.appendChild(fragment);
+
+    els.caseReel.classList.remove("hidden");
+
+    // Форсируем перерасчёт layout, чтобы браузер зафиксировал стартовую
+    // позицию (translateX(0)) ДО того, как мы запустим transition —
+    // иначе анимация "прыгнет" сразу в конечную точку.
+    void els.caseReelTrack.offsetWidth;
+
+    const viewportEl = els.caseReel.querySelector(".case-reel-viewport");
+    const viewportWidth = viewportEl.clientWidth;
+
+    // Центр карточки-победителя внутри трека.
+    const landingCenter = TRACK_PADDING + LANDING_POS * ITEM_STEP + ITEM_WIDTH / 2;
+
+    // Небольшой случайный сдвиг, чтобы указатель не всегда останавливался
+    // ровно по центру карточки (как в реальных кейсах) — но не настолько
+    // большой, чтобы уехать на соседнюю карточку.
+    const maxJitter = ITEM_WIDTH / 2 - 14;
+    const jitter = (Math.random() * 2 - 1) * maxJitter;
+
+    const targetX = -(landingCenter - viewportWidth / 2) + jitter;
+
+    return new Promise((resolve) => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          els.reelTrack.style.transition = `transform ${REEL_SPIN_MS}ms cubic-bezier(0.1, 0.79, 0.15, 1)`;
-          els.reelTrack.style.transform = `translateX(${targetX}px)`;
+          els.caseReelTrack.style.transition = `transform ${SPIN_MS}ms cubic-bezier(0.12, 0.85, 0.13, 1)`;
+          els.caseReelTrack.style.transform = `translateX(${targetX}px)`;
         });
       });
 
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        els.reelTrack.removeEventListener("transitionend", onEnd);
+      window.setTimeout(() => {
+        const landedEl = els.caseReelTrack.children[LANDING_POS];
+        if (landedEl) landedEl.classList.add("is-landed");
         resolve();
-      };
-      const onEnd = (e) => {
-        if (e.propertyName === "transform") finish();
-      };
-      els.reelTrack.addEventListener("transitionend", onEnd);
-      // Подстраховка на случай, если transitionend не придёт (например,
-      // вкладка была свёрнута во время анимации).
-      setTimeout(finish, REEL_SPIN_MS + 400);
+      }, SPIN_MS + 60);
     });
   }
 
   // ---------- открытие кейса ----------
 
-  function flashWonItem(itemIndex) {
-    const card = els.itemsGrid.querySelector(`[data-item-index="${itemIndex}"]`);
-    if (!card) return;
-    card.classList.add("is-won");
-    card.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-    setTimeout(() => card.classList.remove("is-won"), 2600);
+  if (els.caseOpenBtn) {
+    els.caseOpenBtn.addEventListener("click", handleOpenCase);
   }
 
-  function showResult(data) {
-    AppState.setBalance(data.new_balance);
-    const net = data.value - data.cost;
-    els.resultBadge.classList.remove("hidden", "win", "lose", "flat");
-    if (net > 0) {
-      els.resultBadge.classList.add("win");
-      els.resultBadge.textContent = `${data.label} · +${net} шансов`;
-    } else if (net < 0) {
-      els.resultBadge.classList.add("lose");
-      els.resultBadge.textContent = `${data.label} · −${Math.abs(net)} шансов`;
-    } else {
-      els.resultBadge.classList.add("flat");
-      els.resultBadge.textContent = `${data.label} · ставка возвращена`;
-    }
-    flashWonItem(data.item_index);
-    AppState.fetchRecentGames(els.recentGamesList, "case");
-  }
-
-  els.openBtn.addEventListener("click", async () => {
+  async function handleOpenCase() {
     if (opening) return;
-    hideError();
-    els.resultBadge.classList.add("hidden");
     opening = true;
-    setBusy(els.openBtn, true, els.openBtn.querySelector(".btn-spin-text"), "Открываем…", "Открыть кейс");
+    els.caseOpenBtn.disabled = true;
+    hideCaseError();
+    if (els.caseResultBadge) els.caseResultBadge.classList.add("hidden");
+    if (els.caseItemsGrid) {
+      els.caseItemsGrid.querySelectorAll(".case-item.is-won").forEach((el) => el.classList.remove("is-won"));
+    }
 
     try {
-      // 1) Кейс открывает СЕРВЕР — результат уже определён и записан в
-      //    базу ещё до того, как на экране началась хоть одна анимация.
-      const data = await AppState.api("/api/cases/open", { method: "POST", auth: true });
-      const config = await loadCaseConfig();
-      const landedItem = config.items[data.item_index] || {
-        label: data.label, value: data.value, rarity: data.rarity, weight: 1,
-      };
+      // Шаг 1: сервер уже сейчас решил, что выпадет, и списал/начислил баланс.
+      const [result, data] = await Promise.all([
+        window.AppState.api("/api/cases/open", { method: "POST", auth: true }),
+        loadCaseData(),
+      ]);
 
-      // 2) Фронт только визуализирует уже готовый результат — крутит
-      //    ленту так, чтобы она гарантированно остановилась именно на
-      //    предмете, который вернул сервер.
-      els.reel.classList.remove("hidden");
-      buildReel(config.items, landedItem);
-      await spinReelTo(REEL_LANDING_INDEX);
+      // Шаг 2: фронт просто визуализирует уже принятое решение сервера.
+      await playOpenAnimation(data.items, result.item_index);
 
-      const landedEl = els.reelTrack.querySelector(`[data-index="${REEL_LANDING_INDEX}"]`);
-      if (landedEl) landedEl.classList.add("is-landed");
+      window.AppState.setBalance(result.new_balance);
+      showCaseResult(result);
 
-      showResult(data);
+      const wonEl = els.caseItemsGrid.querySelector(`[data-index="${result.item_index}"]`);
+      if (wonEl) wonEl.classList.add("is-won");
+
+      window.AppState.fetchRecentGames(els.caseRecentGamesList, "case");
     } catch (err) {
-      showError(err.message || "Не удалось открыть кейс");
+      showCaseError(err.message);
     } finally {
       opening = false;
-      setBusy(els.openBtn, false, els.openBtn.querySelector(".btn-spin-text"), "Открываем…", "Открыть кейс");
+      els.caseOpenBtn.disabled = false;
     }
-  });
+  }
+
+  function showCaseResult(data) {
+    if (!els.caseResultBadge) return;
+    const net = data.value - data.cost;
+    els.caseResultBadge.classList.remove("hidden", "win", "lose", "flat");
+    if (net > 0) {
+      els.caseResultBadge.classList.add("win");
+      els.caseResultBadge.textContent = `${data.label} · +${net} шансов`;
+    } else if (net < 0) {
+      els.caseResultBadge.classList.add("lose");
+      els.caseResultBadge.textContent = `${data.label} · −${Math.abs(net)} шансов`;
+    } else {
+      els.caseResultBadge.classList.add("flat");
+      els.caseResultBadge.textContent = `${data.label} · ставка возвращена`;
+    }
+  }
+
+  function showCaseError(msg) {
+    if (!els.caseError) return;
+    els.caseError.textContent = msg;
+    els.caseError.classList.remove("hidden");
+  }
+  function hideCaseError() {
+    if (!els.caseError) return;
+    els.caseError.classList.add("hidden");
+  }
 
   window.CasesGame = { onEnter };
 })();
