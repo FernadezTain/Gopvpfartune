@@ -80,6 +80,12 @@
       <span class="game-card-name">Авиатор</span>
       <span class="game-card-sub">Успей забрать до краша</span>
     </button>
+    <button class="game-card game-card-blackjack" data-target="blackjackScreen">
+      <span class="game-card-arrow" aria-hidden="true"></span>
+      <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-cards"></span></span>
+      <span class="game-card-name">Блэкджек</span>
+      <span class="game-card-sub">Собери 21 против дилера</span>
+    </button>
   </div>
 </main>
 
@@ -185,6 +191,59 @@
   </div>
 </main>
 
+<!-- ЭКРАН БЛЭКДЖЕКА -->
+<main id="blackjackScreen" class="aviator-screen hidden">
+  <div class="aviator-layout">
+
+    <section class="aviator-stage bj-stage">
+      <div class="bj-hand">
+        <p class="bj-hand-label">Дилер <span id="bjDealerTotal" class="bj-hand-total"></span></p>
+        <div id="bjDealerCards" class="bj-cards"></div>
+      </div>
+      <div class="bj-hand">
+        <p class="bj-hand-label">Вы <span id="bjPlayerTotal" class="bj-hand-total"></span></p>
+        <div id="bjPlayerCards" class="bj-cards"></div>
+      </div>
+      <div id="bjStatus" class="aviator-status">Сделайте ставку</div>
+    </section>
+
+    <div class="aviator-side">
+      <section class="control-panel">
+        <div class="bet-control">
+          <span class="bet-label">Ставка</span>
+          <div class="bet-stepper">
+            <button type="button" id="bjBetMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
+            <input id="bjBetValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
+            <button type="button" id="bjBetPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+          </div>
+          <span class="bet-unit">шансов</span>
+        </div>
+
+        <button id="bjDealBtn" class="btn btn-spin">
+          <span class="btn-spin-text">Раздать</span>
+          <span class="btn-spin-cost" id="bjDealCost">−5 шансов</span>
+        </button>
+
+        <div id="bjActions" class="bj-actions hidden">
+          <button type="button" id="bjHitBtn" class="btn btn-ghost">Ещё карту</button>
+          <button type="button" id="bjStandBtn" class="btn btn-ghost">Хватит</button>
+          <button type="button" id="bjDoubleBtn" class="btn btn-ghost">Удвоить</button>
+        </div>
+
+        <p id="bjError" class="spin-error hidden"></p>
+      </section>
+
+      <section class="legend">
+        <p class="legend-title">Последние игры</p>
+        <ul id="bjRecentGamesList" class="recent-games-list">
+          <li class="history-empty">Загрузка…</li>
+        </ul>
+      </section>
+    </div>
+
+  </div>
+</main>
+
 <!-- ПРОФИЛЬ -->
 <main id="profileScreen" class="profile-screen hidden">
   <div class="profile-card">
@@ -235,5 +294,6 @@
 <script src="config.js"></script>
 <script src="app.js?v=2"></script>
 <script src="aviator.js?v=2"></script>
+<script src="blackjack.js?v=1"></script>
 </body>
 </html>
