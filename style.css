@@ -1251,13 +1251,23 @@ input, select, textarea {
 
 .bj-stage {
   z-index: 1;
+  height: auto;
+  min-height: 320px;
+  overflow: visible;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   padding: 20px;
-  gap: 14px;
+  gap: 16px;
 }
+
+.bj-stage #bjStatus {
+  position: static;
+  margin-top: 4px;
+  text-align: center;
+}
+.bj-stage #bjStatus::before { display: none; }
 
 .bj-hand {
   width: 100%;
