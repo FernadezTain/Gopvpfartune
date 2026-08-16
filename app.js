@@ -84,7 +84,7 @@
 
   // ---------- роутер экранов ----------
 
-const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
+  const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
   const screenStack = ["mainMenuScreen"];
   let lastTopLevelScreen = "mainMenuScreen";
 
@@ -486,7 +486,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
   // и самолётиком (aviator.js), каждый экран запрашивает свой game_type,
   // поэтому в авиаторе больше не мелькают спины колеса и наоборот. ----------
 
-  const GAME_LABELS = { wheel: "Колесо", aviator: "Авиатор", blackjack: "BlackJack", case: "Кейс" };
+  const GAME_LABELS = { wheel: "Колесо", aviator: "Авиатор", blackjack: "Блэкджек", case: "Кейс" };
 
   function escapeHtml(s) {
     return String(s ?? "").replace(/[&<>"']/g, (c) => ({
