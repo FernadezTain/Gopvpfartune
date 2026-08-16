@@ -18,10 +18,10 @@
   // визуализирует уже принятое сервером решение.
 
   const els = {
-    caseCardBtn: document.getElementById("caseCardBtn"),
     caseListPrice: document.getElementById("caseListPrice"),
 
     caseDetailScreen: document.getElementById("caseDetailScreen"),
+    caseHeroIcon: document.getElementById("caseHeroIcon"),
     caseHeroName: document.getElementById("caseHeroName"),
 
     caseReel: document.getElementById("caseReel"),
@@ -73,14 +73,31 @@
     }
   }
 
-  if (els.caseCardBtn) {
-    els.caseCardBtn.addEventListener("click", openCaseDetailScreen);
-  }
+  // На случай будущих доп. кейсов вешаем обработчик на все .case-card, а
+  // не только на текущий единственный — имя и картинка на экране открытия
+  // всегда берутся из той карточки, по которой кликнули, а не хардкодятся.
+  document.querySelectorAll(".case-card").forEach((btn) => {
+    btn.addEventListener("click", () => openCaseDetailScreen(btn));
+  });
 
-  async function openCaseDetailScreen() {
+  async function openCaseDetailScreen(cardBtn) {
     window.AppState.navigateTo("caseDetailScreen");
 
     resetDetailScreen();
+
+    // Название и иконка кейса — из карточки, по которой кликнули (единый
+    // источник данных с экраном списка кейсов), а не отдельный хардкод.
+    if (cardBtn) {
+      const cardImg = cardBtn.querySelector(".case-card-img");
+      const cardName = cardBtn.querySelector(".case-card-name");
+      if (els.caseHeroIcon && cardImg) {
+        els.caseHeroIcon.src = cardImg.src;
+        els.caseHeroIcon.alt = cardImg.alt || "";
+      }
+      if (els.caseHeroName && cardName) {
+        els.caseHeroName.textContent = cardName.textContent;
+      }
+    }
 
     try {
       const data = await loadCaseData();
