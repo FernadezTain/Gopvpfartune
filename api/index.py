@@ -22,6 +22,7 @@ Environment Variables, НЕ через export/.env):
 """
 
 import os
+import json
 import time
 import math
 import uuid
@@ -163,6 +164,18 @@ def ensure_tables():
             )
         """)
         cur.execute("""
+            CREATE TABLE IF NOT EXISTS blackjack_hands (
+                hand_id UUID PRIMARY KEY,
+                user_id BIGINT,
+                bet INTEGER,
+                status TEXT DEFAULT 'active',
+                deck JSONB,
+                player_cards JSONB,
+                dealer_cards JSONB,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+        """)
+        cur.execute("""
             CREATE TABLE IF NOT EXISTS aviator_rounds (
                 round_id UUID PRIMARY KEY,
                 user_id BIGINT,
@@ -198,6 +211,14 @@ class VerifyCodeBody(BaseModel):
 
 class SpinBody(BaseModel):
     bet: int = Field(ge=MIN_BET, le=MAX_BET)
+
+
+class BlackjackBetBody(BaseModel):
+    bet: int = Field(ge=MIN_BET, le=MAX_BET)
+
+
+class BlackjackHandBody(BaseModel):
+    hand_id: str
 
 
 # ---------- авторизация ----------
@@ -1124,3 +1145,288 @@ async def aviator_cashout(token: str = Depends(bearer_token)):
         "payout": payout,
         "new_balance": new_balance
     }
+
+
+# ---------- блэкджек (1 игрок против дилера) ----------
+
+BJ_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
+BJ_SUITS = ["♠", "♥", "♦", "♣"]
+
+
+def bj_new_deck() -> list:
+    deck = [{"r": r, "s": s} for r in BJ_RANKS for s in BJ_SUITS]
+    random.shuffle(deck)
+    return deck
+
+
+def bj_hand_value(cards: list) -> tuple[int, bool]:
+    """Возвращает (сумма, мягкая ли рука — есть туз, считающийся за 11)."""
+    total = 0
+    aces = 0
+    for c in cards:
+        r = c["r"]
+        if r == "A":
+            total += 11
+            aces += 1
+        elif r in ("J", "Q", "K"):
+            total += 10
+        else:
+            total += int(r)
+    soft = aces > 0
+    while total > 21 and aces > 0:
+        total -= 10
+        aces -= 1
+        soft = aces > 0
+    return total, soft
+
+
+def bj_is_blackjack(cards: list) -> bool:
+    return len(cards) == 2 and bj_hand_value(cards)[0] == 21
+
+
+def bj_load_hand(cur, user_id: int, hand_id: str) -> dict:
+    cur.execute("""
+        SELECT hand_id, user_id, bet, status, deck, player_cards, dealer_cards
+        FROM blackjack_hands WHERE hand_id = %s
+    """, (hand_id,))
+    row = cur.fetchone()
+    if not row or row[1] != user_id:
+        raise HTTPException(status_code=404, detail="Раздача не найдена")
+    return {
+        "hand_id": row[0], "user_id": row[1], "bet": row[2], "status": row[3],
+        "deck": row[4], "player_cards": row[5], "dealer_cards": row[6],
+    }
+
+
+def bj_dealer_play(deck: list, dealer_cards: list) -> None:
+    # Дилер берёт карты, пока сумма меньше 17 (стоит на "мягких" 17).
+    while bj_hand_value(dealer_cards)[0] < 17:
+        dealer_cards.append(deck.pop())
+
+
+def bj_settle(cur, hand: dict, user_id: int, final_dealer_cards: list, status: str, result_label: str, payout: int) -> dict:
+    cur.execute("""
+        UPDATE blackjack_hands SET status = %s, dealer_cards = %s WHERE hand_id = %s
+    """, (status, json.dumps(final_dealer_cards), hand["hand_id"]))
+
+    cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
+    row = cur.fetchone()
+    balance = row[0] if row else 0
+    new_balance = balance + payout
+    cur.execute("UPDATE user_chances SET balance = %s WHERE user_id = %s", (new_balance, user_id))
+
+    net = payout - hand["bet"]
+    cur.execute("""
+        INSERT INTO game_rounds (game_round_id, user_id, game_type, bet, result_label, payout, balance_change, balance_after)
+        VALUES (%s, %s, 'blackjack', %s, %s, %s, %s, %s)
+    """, (str(uuid.uuid4()), user_id, hand["bet"], result_label, payout, net, new_balance))
+
+    return {"new_balance": new_balance, "payout": payout, "result_label": result_label}
+
+
+@app.get("/api/blackjack/state")
+async def blackjack_state(token: str = Depends(bearer_token)):
+    with db() as conn:
+        user = require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT hand_id, bet, player_cards, dealer_cards
+            FROM blackjack_hands WHERE user_id = %s AND status = 'active'
+            ORDER BY created_at DESC LIMIT 1
+        """, (user["user_id"],))
+        row = cur.fetchone()
+        cur.close()
+    if not row:
+        return {"has_hand": False}
+    player_total, _ = bj_hand_value(row[2])
+    return {
+        "has_hand": True, "hand_id": str(row[0]), "bet": row[1],
+        "player_cards": row[2], "player_total": player_total,
+        "dealer_up_card": row[3][0],
+    }
+
+
+@app.post("/api/blackjack/start")
+async def blackjack_start(body: BlackjackBetBody, token: str = Depends(bearer_token)):
+    bet = body.bet
+    with db() as conn:
+        user = require_session(conn, token)
+        user_id = user["user_id"]
+        cur = conn.cursor()
+
+        cur.execute("SELECT 1 FROM blackjack_hands WHERE user_id = %s AND status = 'active'", (user_id,))
+        if cur.fetchone():
+            cur.close()
+            raise HTTPException(status_code=400, detail="У вас уже есть незавершённая раздача")
+
+        cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        balance = row[0] if row else 0
+        if balance < bet:
+            cur.close()
+            raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
+
+        deck = bj_new_deck()
+        player_cards = [deck.pop(), deck.pop()]
+        dealer_cards = [deck.pop(), deck.pop()]
+        hand_id = str(uuid.uuid4())
+
+        new_balance = balance - bet
+        cur.execute("UPDATE user_chances SET balance = %s WHERE user_id = %s", (new_balance, user_id))
+
+        import json as _json
+        cur.execute("""
+            INSERT INTO blackjack_hands (hand_id, user_id, bet, status, deck, player_cards, dealer_cards)
+            VALUES (%s, %s, %s, 'active', %s, %s, %s)
+        """, (hand_id, user_id, bet, json.dumps(deck), json.dumps(player_cards), json.dumps(dealer_cards)))
+
+        hand = {"hand_id": hand_id, "bet": bet}
+        player_total, _ = bj_hand_value(player_cards)
+        dealer_total, _ = bj_hand_value(dealer_cards)
+
+        # Натуральный блэкджек у игрока — раздача сразу завершается.
+        if bj_is_blackjack(player_cards):
+            if bj_is_blackjack(dealer_cards):
+                result = bj_settle(cur, hand, user_id, dealer_cards, "finished", "Пуш (блэкджек/блэкджек)", bet)
+            else:
+                payout = bet + math.floor(bet * 1.5 + 0.5)
+                result = bj_settle(cur, hand, user_id, dealer_cards, "finished", "Блэкджек! 3:2", payout)
+            cur.close()
+            return {
+                "ok": True, "hand_id": hand_id, "status": "finished",
+                "player_cards": player_cards, "dealer_cards": dealer_cards,
+                "player_total": player_total, "dealer_total": bj_hand_value(dealer_cards)[0],
+                **result,
+            }
+
+        cur.close()
+        return {
+            "ok": True, "hand_id": hand_id, "status": "active", "bet": bet,
+            "player_cards": player_cards, "player_total": player_total,
+            "dealer_up_card": dealer_cards[0], "new_balance": new_balance,
+        }
+
+
+@app.post("/api/blackjack/hit")
+async def blackjack_hit(body: BlackjackHandBody, token: str = Depends(bearer_token)):
+    with db() as conn:
+        user = require_session(conn, token)
+        user_id = user["user_id"]
+        cur = conn.cursor()
+        hand = bj_load_hand(cur, user_id, body.hand_id)
+        if hand["status"] != "active":
+            cur.close()
+            raise HTTPException(status_code=400, detail="Раздача уже завершена")
+
+        deck, player_cards = hand["deck"], hand["player_cards"]
+        player_cards.append(deck.pop())
+        player_total, _ = bj_hand_value(player_cards)
+
+        import json as _json
+        if player_total > 21:
+            result = bj_settle(cur, hand, user_id, hand["dealer_cards"], "finished", "Перебор — дилер выиграл", 0)
+            cur.close()
+            return {
+                "ok": True, "status": "finished", "player_cards": player_cards,
+                "dealer_cards": hand["dealer_cards"], "player_total": player_total,
+                "dealer_total": bj_hand_value(hand["dealer_cards"])[0], **result,
+            }
+
+        cur.execute("""
+            UPDATE blackjack_hands SET deck = %s, player_cards = %s WHERE hand_id = %s
+        """, (json.dumps(deck), json.dumps(player_cards), hand["hand_id"]))
+        cur.close()
+        return {
+            "ok": True, "status": "active", "player_cards": player_cards,
+            "player_total": player_total, "dealer_up_card": hand["dealer_cards"][0],
+        }
+
+
+@app.post("/api/blackjack/stand")
+async def blackjack_stand(body: BlackjackHandBody, token: str = Depends(bearer_token)):
+    with db() as conn:
+        user = require_session(conn, token)
+        user_id = user["user_id"]
+        cur = conn.cursor()
+        hand = bj_load_hand(cur, user_id, body.hand_id)
+        if hand["status"] != "active":
+            cur.close()
+            raise HTTPException(status_code=400, detail="Раздача уже завершена")
+
+        deck, dealer_cards = hand["deck"], hand["dealer_cards"]
+        bj_dealer_play(deck, dealer_cards)
+        player_total, _ = bj_hand_value(hand["player_cards"])
+        dealer_total, _ = bj_hand_value(dealer_cards)
+
+        if dealer_total > 21 or player_total > dealer_total:
+            result = bj_settle(cur, hand, user_id, dealer_cards, "finished", "Вы выиграли", hand["bet"] * 2)
+        elif player_total == dealer_total:
+            result = bj_settle(cur, hand, user_id, dealer_cards, "finished", "Пуш — ставка возвращена", hand["bet"])
+        else:
+            result = bj_settle(cur, hand, user_id, dealer_cards, "finished", "Дилер выиграл", 0)
+
+        cur.close()
+        return {
+            "ok": True, "status": "finished", "player_cards": hand["player_cards"],
+            "dealer_cards": dealer_cards, "player_total": player_total,
+            "dealer_total": dealer_total, **result,
+        }
+
+
+@app.post("/api/blackjack/double")
+async def blackjack_double(body: BlackjackHandBody, token: str = Depends(bearer_token)):
+    with db() as conn:
+        user = require_session(conn, token)
+        user_id = user["user_id"]
+        cur = conn.cursor()
+        hand = bj_load_hand(cur, user_id, body.hand_id)
+        if hand["status"] != "active":
+            cur.close()
+            raise HTTPException(status_code=400, detail="Раздача уже завершена")
+        if len(hand["player_cards"]) != 2:
+            cur.close()
+            raise HTTPException(status_code=400, detail="Удвоить можно только сразу после раздачи")
+
+        cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        balance = row[0] if row else 0
+        if balance < hand["bet"]:
+            cur.close()
+            raise HTTPException(status_code=400, detail="Недостаточно шансов для удвоения")
+
+        new_balance = balance - hand["bet"]
+        cur.execute("UPDATE user_chances SET balance = %s WHERE user_id = %s", (new_balance, user_id))
+
+        hand["bet"] *= 2
+        deck, player_cards = hand["deck"], hand["player_cards"]
+        player_cards.append(deck.pop())
+        player_total, _ = bj_hand_value(player_cards)
+
+        cur.execute("UPDATE blackjack_hands SET bet = %s WHERE hand_id = %s", (hand["bet"], hand["hand_id"]))
+
+        if player_total > 21:
+            result = bj_settle(cur, hand, user_id, hand["dealer_cards"], "finished", "Перебор — дилер выиграл", 0)
+            cur.close()
+            return {
+                "ok": True, "status": "finished", "player_cards": player_cards,
+                "dealer_cards": hand["dealer_cards"], "player_total": player_total,
+                "dealer_total": bj_hand_value(hand["dealer_cards"])[0], **result,
+            }
+
+        dealer_cards = hand["dealer_cards"]
+        bj_dealer_play(deck, dealer_cards)
+        dealer_total, _ = bj_hand_value(dealer_cards)
+
+        if dealer_total > 21 or player_total > dealer_total:
+            result = bj_settle(cur, hand, user_id, dealer_cards, "finished", "Вы выиграли (х2)", hand["bet"] * 2)
+        elif player_total == dealer_total:
+            result = bj_settle(cur, hand, user_id, dealer_cards, "finished", "Пуш — ставка возвращена", hand["bet"])
+        else:
+            result = bj_settle(cur, hand, user_id, dealer_cards, "finished", "Дилер выиграл", 0)
+
+        cur.close()
+        return {
+            "ok": True, "status": "finished", "player_cards": player_cards,
+            "dealer_cards": dealer_cards, "player_total": player_total,
+            "dealer_total": dealer_total, **result,
+        }
