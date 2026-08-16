@@ -2,19 +2,18 @@
   "use strict";
 
   // Ждём, пока app.js создаст window.AppState (порядок подключения
-  // скриптов в index.html: config.js -> app.js -> aviator.js -> cases.js).
+  // скриптов в index.html: config.js -> app.js -> aviator.js -> blackjack.js -> cases.js).
   const AppState = window.AppState;
 
   const els = {
-    openBtn: document.getElementById("caseOpenBtn"),
-    openCost: document.getElementById("caseOpenCost"),
+    caseBtn: document.getElementById("caseCardBtn"),
+    caseCost: document.getElementById("caseCardCost"),
     error: document.getElementById("caseError"),
     resultBadge: document.getElementById("caseResultBadge"),
     itemsGrid: document.getElementById("caseItemsGrid"),
     recentGamesList: document.getElementById("caseRecentGamesList"),
   };
 
-  let cost = 30;
   let opening = false;
   let loaded = false; // содержимое кейса не меняется — грузим один раз за сессию
 
@@ -64,12 +63,12 @@
     AppState.fetchRecentGames(els.recentGamesList, "case");
   }
 
-  els.openBtn.addEventListener("click", async () => {
+  els.caseBtn.addEventListener("click", async () => {
     if (opening) return;
     opening = true;
     els.error.classList.add("hidden");
     els.resultBadge.classList.add("hidden");
-    els.openBtn.disabled = true;
+    els.caseBtn.disabled = true;
 
     try {
       const data = await AppState.api("/api/cases/open", { method: "POST", auth: true });
@@ -79,15 +78,14 @@
       els.error.classList.remove("hidden");
     } finally {
       opening = false;
-      els.openBtn.disabled = false;
+      els.caseBtn.disabled = false;
     }
   });
 
   async function onEnter() {
     if (!loaded) {
       const data = await AppState.api("/api/cases", { auth: true });
-      cost = data.cost;
-      els.openCost.textContent = `−${cost} шансов`;
+      els.caseCost.textContent = data.cost;
       renderItems(data.items);
       loaded = true;
     }
