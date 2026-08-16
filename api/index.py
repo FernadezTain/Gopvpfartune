@@ -75,6 +75,21 @@ WHEEL_SECTIONS = [
 ]
 assert sum(s["weight"] for s in WHEEL_SECTIONS) == 1000
 
+# ---------- содержимое кейса ----------
+# label, value (шансы, зачисляются игроку), вес (промилле, сумма = 1000), rarity — только для цвета карточки на фронте
+CASE_COST = 30
+CASE_ITEMS = [
+    {"label": "Пусто",      "value": 0,   "kind": "empty", "weight": 350, "rarity": "common"},
+    {"label": "10 шансов",  "value": 10,  "kind": "cash",  "weight": 250, "rarity": "common"},
+    {"label": "20 шансов",  "value": 20,  "kind": "cash",  "weight": 180, "rarity": "uncommon"},
+    {"label": "35 шансов",  "value": 35,  "kind": "cash",  "weight": 120, "rarity": "rare"},
+    {"label": "60 шансов",  "value": 60,  "kind": "cash",  "weight": 60,  "rarity": "epic"},
+    {"label": "100 шансов", "value": 100, "kind": "cash",  "weight": 30,  "rarity": "legendary"},
+    {"label": "250 шансов", "value": 250, "kind": "cash",  "weight": 9,   "rarity": "mythic"},
+    {"label": "500 шансов", "value": 500, "kind": "cash",  "weight": 1,   "rarity": "mythic"},
+]
+assert sum(i["weight"] for i in CASE_ITEMS) == 1000
+
 bot = Bot(token=BOT_TOKEN)
 
 app = FastAPI(title="Gift Chance Wheel API")
@@ -378,6 +393,15 @@ def roll_section() -> tuple[int, dict]:
     return len(WHEEL_SECTIONS) - 1, WHEEL_SECTIONS[-1]
 
 
+def roll_case_item() -> tuple[int, dict]:
+    roll = random.randint(1, 1000)
+    acc = 0
+    for idx, item in enumerate(CASE_ITEMS):
+        acc += item["weight"]
+        if roll <= acc:
+            return idx, item
+    return len(CASE_ITEMS) - 1, CASE_ITEMS[-1]
+
 @app.post("/api/spin")
 async def spin(body: SpinBody, token: str = Depends(bearer_token)):
     bet = body.bet
@@ -441,6 +465,62 @@ async def spin(body: SpinBody, token: str = Depends(bearer_token)):
         "label": section["label"],
         "payout": payout,
         "bet": bet,
+        "new_balance": new_balance,
+    }
+
+
+@app.get("/api/cases")
+async def get_cases(token: str = Depends(bearer_token)):
+    with db() as conn:
+        require_session(conn, token)
+    return {
+        "cost": CASE_COST,
+        "items": [
+            {"label": i["label"], "value": i["value"], "weight": i["weight"], "rarity": i["rarity"]}
+            for i in CASE_ITEMS
+        ],
+    }
+
+
+@app.post("/api/cases/open")
+async def open_case(token: str = Depends(bearer_token)):
+    index, item = roll_case_item()
+    net = item["value"] - CASE_COST
+
+    with db() as conn:
+        user = require_session(conn, token)
+        user_id, username = user["user_id"], user["username"]
+
+        cur = conn.cursor()
+        cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
+        balance = row[0] if row else 0
+        if balance < CASE_COST:
+            cur.close()
+            raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
+
+        new_balance = balance + net
+        cur.execute("""
+            INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                balance = %s,
+                username = excluded.username
+        """, (user_id, username, new_balance, new_balance))
+
+        cur.execute("""
+            INSERT INTO game_rounds
+                (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
+            VALUES (%s, 'case', %s, %s, %s, %s, %s)
+        """, (user_id, CASE_COST, item["label"], item["value"], net, new_balance))
+        cur.close()
+
+    return {
+        "ok": True,
+        "item_index": index,
+        "label": item["label"],
+        "value": item["value"],
+        "rarity": item["rarity"],
+        "cost": CASE_COST,
         "new_balance": new_balance,
     }
 
