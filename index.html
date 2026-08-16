@@ -64,6 +64,19 @@
   </div>
 </main>
 
+<!-- ЭКРАН КЕЙСОВ -->
+<main id="casesScreen" class="cases-screen hidden">
+  <p class="menu-title">Кейсы</p>
+  <div class="case-grid" id="caseGrid">
+    <button class="case-card" id="caseCardBtn" data-case="gopvp_green">
+      <span class="case-card-badge">Новое</span>
+      <img class="case-card-img" src="case_icon/Gopvp_greencase.png" alt="Gopvp Green Case" />
+      <span class="case-card-price"><span class="icon-chance-coin" aria-hidden="true"></span><span id="caseListPrice">30</span></span>
+      <span class="case-card-name">Стартовый кейс</span>
+    </button>
+  </div>
+</main>
+
 <!-- ГЛАВНОЕ МЕНЮ -->
 <main id="mainMenuScreen" class="menu-screen hidden">
   <p class="menu-title">Игры</p>
@@ -83,7 +96,7 @@
     <button class="game-card game-card-blackjack" data-target="blackjackScreen">
       <span class="game-card-arrow" aria-hidden="true"></span>
       <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-cards"></span></span>
-      <span class="game-card-name">Black Jack</span>
+      <span class="game-card-name">Блэкджек</span>
       <span class="game-card-sub">Собери 21 против дилера</span>
     </button>
   </div>
@@ -244,21 +257,21 @@
   </div>
 </main>
 
-<!-- ЭКРАН КЕЙСОВ -->
-<main id="casesScreen" class="cases-screen hidden">
-  <p class="menu-title">Кейсы</p>
+<!-- ЭКРАН ОТКРЫТИЯ КЕЙСА -->
+<main id="caseDetailScreen" class="cases-screen hidden">
+  <div class="case-hero">
+    <div class="case-hero-icon-badge"><span class="icon-case-lg" aria-hidden="true"></span></div>
+    <p class="case-hero-name" id="caseHeroName">Стартовый кейс</p>
+    <p class="case-hero-sub">Испытай удачу и получи шансы</p>
 
-  <div class="case-grid">
-    <button type="button" class="case-card" id="caseCardBtn">
-      <span class="case-card-badge">NEW</span>
-      <span class="case-card-img"><span class="icon-case-art" aria-hidden="true"></span></span>
-      <span class="case-card-price"><span class="icon-chance-coin" aria-hidden="true"></span><span id="caseCardCost">30</span></span>
-      <span class="case-card-name">Стартовый кейс</span>
+    <button id="caseOpenBtn" class="btn btn-spin case-open-btn">
+      <span class="btn-spin-text">Открыть кейс</span>
+      <span class="btn-spin-cost" id="caseOpenCost">−30 шансов</span>
     </button>
-  </div>
 
-  <p id="caseError" class="spin-error hidden"></p>
-  <div id="caseResultBadge" class="result-badge hidden"></div>
+    <p id="caseError" class="spin-error hidden"></p>
+    <div id="caseResultBadge" class="result-badge hidden"></div>
+  </div>
 
   <section class="legend case-content-panel">
     <p class="legend-title">Содержимое кейса</p>
@@ -312,11 +325,11 @@
 
 <!-- НИЖНЯЯ НАВИГАЦИЯ -->
 <nav id="bottomNav" class="bottom-nav hidden">
-  <button class="nav-btn" id="navCases" data-target="casesScreen">
-    <span class="nav-icon"><span class="icon-case"></span></span><span>Кейсы</span>
-  </button>
-  <button class="nav-btn nav-btn-main is-active" id="navHome" data-target="mainMenuScreen">
+  <button class="nav-btn is-active" id="navHome" data-target="mainMenuScreen">
     <span class="nav-icon"><span class="icon-home"></span></span><span>Главная</span>
+  </button>
+  <button class="nav-btn" id="navCases" data-target="casesScreen">
+    <span class="nav-icon"><span class="icon-case-nav"></span></span><span>Кейсы</span>
   </button>
   <button class="nav-btn" id="navProfile" data-target="profileScreen">
     <span class="nav-icon"><span class="icon-user"></span></span><span>Профиль</span>
@@ -326,7 +339,7 @@
 <script src="config.js"></script>
 <script src="app.js?v=2"></script>
 <script src="aviator.js?v=2"></script>
+<script src="cases.js?v=2"></script>
 <script src="blackjack.js?v=1"></script>
-<script src="cases.js?v=1"></script>
 </body>
 </html>
