@@ -30,6 +30,7 @@
     loginScreen: document.getElementById("loginScreen"),
     mainMenuScreen: document.getElementById("mainMenuScreen"),
     casesScreen: document.getElementById("casesScreen"),
+    caseDetailScreen: document.getElementById("caseDetailScreen"),
     wheelScreen: document.getElementById("wheelScreen"),
     aviatorScreen: document.getElementById("aviatorScreen"),
     blackjackScreen: document.getElementById("blackjackScreen"),
@@ -84,7 +85,7 @@
 
   // ---------- роутер экранов ----------
 
-  const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
+const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
   const screenStack = ["mainMenuScreen"];
   let lastTopLevelScreen = "mainMenuScreen";
 
@@ -119,7 +120,7 @@
     }
 
     [
-      "loginScreen", "mainMenuScreen", "casesScreen", "wheelScreen",
+      "loginScreen", "mainMenuScreen", "casesScreen", "caseDetailScreen", "wheelScreen",
       "aviatorScreen", "blackjackScreen", "profileScreen", "historyScreen",
     ].forEach((id) => document.getElementById(id).classList.add("hidden"));
 
@@ -128,7 +129,7 @@
 
     // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
     // история) — кнопка "назад" видна в самих играх (колесо, самолётик, блэкджек).
-    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen"].includes(screenId);
+    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen", "caseDetailScreen"].includes(screenId);
     els.bottomNav.classList.toggle("hidden", isSubScreen);
     els.backBtn.classList.toggle("hidden", !isSubScreen);
 
@@ -486,7 +487,7 @@
   // и самолётиком (aviator.js), каждый экран запрашивает свой game_type,
   // поэтому в авиаторе больше не мелькают спины колеса и наоборот. ----------
 
-  const GAME_LABELS = { wheel: "Колесо", aviator: "Авиатор", blackjack: "Блэкджек", case: "Кейс" };
+  const GAME_LABELS = { wheel: "Колесо", aviator: "Авиатор", blackjack: "BlackJack", case: "Кейс" };
 
   function escapeHtml(s) {
     return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -546,6 +547,7 @@
   }
 
   window.AppState.fetchRecentGames = fetchRecentGames;
+  window.AppState.navigateTo = navigateTo;
 
   // ---------- preloader ----------
 
