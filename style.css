@@ -1,2033 +1,629 @@
-:root {
-  --bg: #12101c;
-  --bg-soft: #1b1830;
-  --panel: #221e3a;
-  --panel-line: #342f54;
-  --text: #edeaf6;
-  --text-dim: #9c97b8;
-  --gold: #ffc857;
-  --violet: #7b61ff;
-  --red: #ff5c77;
-  --green: #33d69f;
-  --font-display: "Unbounded", system-ui, sans-serif;
-  --font-body: "Manrope", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-}
-
-* { box-sizing: border-box; }
-
-html {
-  /* Резервная защита от зума: даже если viewport meta будет проигнорирован
-     браузером, двойной тап и pinch-жест на элементах не масштабируют их. */
-  touch-action: manipulation;
-  -webkit-text-size-adjust: 100%;
-  text-size-adjust: 100%;
-}
-
-html, body {
-  margin: 0;
-  padding: 0;
-  min-height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-body);
-  overscroll-behavior-y: contain;
-  width: 100%;
-}
-
-body {
-  background-color: var(--bg);
-  padding-bottom: calc(78px + env(safe-area-inset-bottom)); /* место под нижнюю навигацию + home indicator */
-  position: relative;
-  /* Страховка от горизонтального скролла на телефонах — если что-то
-     где-то вылезет за 100vw (сумма паддингов + gap в узком гриде,
-     длинное слово без переноса и т.п.), страница не «поедет» вбок.
-     ВАЖНО: overflow-x должен стоять на <body>, а не на <html> — в
-     WebKit (Safari / Telegram in-app browser) overflow на <html>
-     превращает <html> в containing block для position:fixed, из-за
-     чего .bottom-nav (position:fixed; left:50%) центрируется уже не
-     по видимому вьюпорту, а по полной ширине документа, и визуально
-     "уезжает" влево, если где-то на странице есть хоть небольшой
-     горизонтальный оверфлоу. На <body> той же проблемы нет.  */
-  overflow-x: hidden;
-}
-
-/* На всякий случай — независимо от класса, ни одно поле ввода не должно
-   иметь font-size меньше 16px: это тот порог, ниже которого iOS Safari
-   сам приближает страницу при фокусе на поле. */
-input, select, textarea {
-  font-size: 16px;
-}
-
-/*
-  Фон — отдельный position:fixed слой, а не background-attachment:fixed
-  на body. background-attachment:fixed привязывается к вьюпорту, но
-  background-size в vw/vh считается по canvas страницы и при зуме/скролле
-  на длинных страницах фон банально "заканчивается" и ниже видно плоский
-  var(--bg) — это и был баг с обрывающимся градиентом. Фиксированный
-  элемент во весь экран такой проблемы не имеет в принципе.
-*/
-.bg-decor {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-color: var(--bg);
-  background-image:
-    radial-gradient(circle at 15% 0%, rgba(123,97,255,0.28), transparent 42%),
-    radial-gradient(circle at 88% 6%, rgba(255,200,87,0.18), transparent 40%),
-    radial-gradient(circle at 8% 88%, rgba(51,214,159,0.14), transparent 42%),
-    radial-gradient(circle at 92% 92%, rgba(123,97,255,0.16), transparent 40%),
-    repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 64px);
-  background-repeat: no-repeat;
-  background-size: cover;
-}
-
-.hidden { display: none !important; }
-
-.noise-overlay {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.035;
-  z-index: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-/* ---------- Preloader ---------- */
-
-.preloader {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #08070c;
-  transition: opacity 0.5s ease, visibility 0.5s ease;
-}
-
-.preloader.preloader-out {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.preloader-letters {
-  position: relative;
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: clamp(56px, 16vw, 96px);
-  line-height: 1;
-  letter-spacing: 0.1em;
-  user-select: none;
-}
-
-.letters-base,
-.letters-fill {
-  display: block;
-  padding: 0;
-  background: none;
-}
-
-.letters-base {
-  color: #322e48;
-}
-
-.letters-fill {
-  position: absolute;
-  inset: 0;
-  padding: 0;
-  color: var(--gold);
-  clip-path: inset(100% 0 0 0);
-  background: none;
-}
-
-.preloader-letters.is-filled .letters-fill {
-  animation: preloader-pulse 0.7s ease;
-}
-
-@keyframes preloader-pulse {
-  0% { transform: scale(1); }
-  40% { transform: scale(1.05); }
-  100% { transform: scale(1); }
-}
-
-/* ---------- Topbar ---------- */
-
-.topbar {
-  position: sticky;
-  top: calc(12px + env(safe-area-inset-top));
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: calc(12px + env(safe-area-inset-top)) 14px 0;
-  padding: 14px 22px;
-  flex-wrap: wrap;
-  border-radius: 20px;
-  background: rgba(24,21,38,0.82);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.07);
-  box-shadow:
-    0 14px 34px rgba(0,0,0,0.45),
-    0 2px 8px rgba(0,0,0,0.3),
-    inset 0 1px 0 rgba(255,255,255,0.05);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-display);
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  font-size: 18px;
-}
-
-.back-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-dim);
-  margin-right: auto;
-  padding: 6px 10px;
-  border-radius: 10px;
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.back-btn:hover { color: var(--text); background: var(--panel); }
-
-.balance-chip {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 9px 16px;
-  border-radius: 999px;
-  background: var(--panel);
-  border: 1px solid var(--panel-line);
-  box-shadow: 0 0 0 1px rgba(255,200,87,0.08) inset;
-  margin-left: auto;
-}
-
-.balance-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
-}
-
-.balance-value {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 17px;
-  color: var(--gold);
-}
-
-.balance-unit {
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-/* ---------- Login screen ---------- */
-
-.login-screen {
-  min-height: calc(100vh - 70px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
-  position: relative;
-  z-index: 1;
-}
-
-.login-card {
-  width: 100%;
-  max-width: 420px;
-  padding: 40px 34px;
-  border-radius: 24px;
-  background: var(--panel);
-  border: 1px solid var(--panel-line);
-  box-shadow: 0 30px 80px -30px rgba(0,0,0,0.6);
-}
-
-.eyebrow {
-  margin: 0 0 10px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--violet);
-  font-weight: 700;
-}
-
-.login-title {
-  margin: 0 0 12px;
-  font-family: var(--font-display);
-  font-size: 30px;
-  line-height: 1.15;
-  font-weight: 700;
-}
-
-.login-sub {
-  margin: 0 0 26px;
-  color: var(--text-dim);
-  font-size: 14.5px;
-  line-height: 1.5;
-}
-
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.field-label {
-  font-size: 12px;
-  color: var(--text-dim);
-  font-weight: 600;
-  margin-bottom: -4px;
-}
-
-.field-input {
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid var(--panel-line);
-  background: var(--bg-soft);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 16px;
-  outline: none;
-  transition: border-color 0.15s ease;
-}
-
-.field-input:focus { border-color: var(--violet); }
-
-.code-input {
-  letter-spacing: 0.4em;
-  text-align: center;
-  font-size: 22px;
-}
-
-.btn {
-  border: none;
-  border-radius: 12px;
-  font-family: var(--font-body);
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 0.12s ease, opacity 0.12s ease;
-}
-
-.btn:active { transform: scale(0.97); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.btn-primary {
-  padding: 14px 18px;
-  margin-top: 4px;
-  background: linear-gradient(135deg, var(--violet), #9b7bff);
-  color: #fff;
-  font-size: 15px;
-}
-
-.btn-ghost {
-  padding: 10px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 13px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.hint {
-  margin: 6px 0 0;
-  font-size: 12.5px;
-  color: var(--text-dim);
-}
-
-.hint code {
-  background: var(--bg-soft);
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-family: var(--font-mono);
-}
-
-.login-error {
-  margin: 16px 0 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  background: rgba(255,92,119,0.12);
-  border: 1px solid rgba(255,92,119,0.4);
-  color: var(--red);
-  font-size: 13.5px;
-}
-
-/* ---------- Главное меню ---------- */
-
-.menu-screen {
-  position: relative;
-  z-index: 1;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 32px 20px 60px;
-}
-
-.menu-title {
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 700;
-  margin: 0 0 20px;
-}
-
-.game-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
-}
-
-/* Две карточки в ряд — только когда реально есть место (планшет/десктоп).
-   На телефоне (в т.ч. Telegram Mini App) карточка теперь всегда во всю
-   строку — раньше в 2 колонки текст вроде "Авиатор" обрезался. */
-@media (min-width: 640px) {
-  .game-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 16px;
-  }
-}
-
-/* ---------- Карточка игры ---------- */
-/* Мобильная версия (по умолчанию): полная ширина, иконка слева,
-   название/подпись — в две строки справа, через grid. Раньше это была
-   "геройская" квадратная карточка в 2 колонки — на телефоне текст
-   вроде "Авиатор" обрезался и выглядело криво. */
-.game-card {
-  display: grid;
-  grid-template-columns: 56px 1fr;
-  align-items: center;
-  column-gap: 16px;
-  row-gap: 2px;
-  min-height: 84px;
-  padding: 16px 20px;
-  border-radius: 18px;
-  border: 1px solid var(--panel-line);
-  background:
-    radial-gradient(circle at 12% 100%, var(--card-glow, rgba(123,97,255,0.16)), transparent 60%),
-    linear-gradient(155deg, #262143 0%, var(--panel) 55%, #1c1930 100%);
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--font-body);
-  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
-  position: relative;
-  overflow: visible;
-  box-shadow: 0 14px 28px -18px rgba(0,0,0,0.7);
-  width: 100%;
-}
-
-.game-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0.55;
-  background-image: repeating-linear-gradient(135deg, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, transparent 1px, transparent 10px);
-  -webkit-mask-image: linear-gradient(155deg, black, transparent 65%);
-  mask-image: linear-gradient(155deg, black, transparent 65%);
-  pointer-events: none;
-}
-
-.game-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0.6;
-  background: radial-gradient(circle at 100% 0%, rgba(255,255,255,0.10), transparent 55%);
-  pointer-events: none;
-}
-
-.game-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--card-accent, var(--violet));
-  box-shadow: 0 20px 34px -16px rgba(0,0,0,0.75), 0 0 0 1px var(--card-accent, var(--violet)) inset;
-}
-.game-card:hover .game-card-icon-badge { transform: rotate(-2deg) translateY(-4px); }
-.game-card:hover .game-card-arrow { opacity: 1; transform: translate(0, 0); }
-.game-card:active { transform: scale(0.98); }
-.game-card:active .game-card-icon-badge { transform: rotate(-6deg) scale(0.96); }
-
-.game-card-name { grid-column: 2; grid-row: 1; font-family: var(--font-display); font-weight: 700; font-size: 15px; line-height: 1.25; }
-.game-card-sub { grid-column: 2; grid-row: 2; font-size: 12.5px; color: var(--text-dim); }
-
-.game-card-wheel { --card-glow: rgba(255,200,87,0.20); --card-accent: var(--gold); }
-.game-card-aviator { --card-glow: rgba(123,97,255,0.22); --card-accent: var(--violet); }
-.game-card-blackjack { --card-glow: rgba(51,214,159,0.22); --card-accent: var(--green); }
-
-.game-card-arrow {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.12);
-  opacity: 0;
-  transform: translate(-4px, 4px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-  z-index: 2;
-}
-.game-card-arrow::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-top: 2px solid var(--card-accent, var(--text));
-  border-right: 2px solid var(--card-accent, var(--text));
-  transform: translate(-1px, 0) rotate(45deg);
-}
-
-/* ---------- Значок игры — на телефоне обычная иконка слева ---------- */
-
-.game-card-icon-badge {
-  grid-column: 1;
-  grid-row: 1 / span 2;
-  position: relative;
-  width: 52px;
-  height: 52px;
-  border-radius: 15px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transform: rotate(-8deg);
-  box-shadow:
-    0 14px 26px -8px rgba(0,0,0,0.65),
-    0 0 0 4px var(--bg-soft),
-    inset 0 1px 0 rgba(255,255,255,0.3);
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-  z-index: 2;
-}
-
-/* Начиная с планшета — снова 2 карточки в ряд, и тут уже красивее
-   смотрится крупная «геройская» карточка со «выступающим» из угла
-   значком, как было изначально. */
-@media (min-width: 640px) {
-  .game-card {
-    grid-template-columns: none;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    align-items: flex-start;
-    gap: 6px;
-    min-height: 138px;
-    padding: 20px 40px 20px 78px;
-    border-radius: 20px;
-  }
-  .game-card-name, .game-card-sub { grid-column: auto; grid-row: auto; }
-  .game-card-icon-badge {
-    position: absolute;
-    left: -14px;
-    bottom: -14px;
-    width: 64px;
-    height: 64px;
-    border-radius: 18px;
-  }
-}
-
-.game-card-icon-badge::before {
-  content: "";
-  position: absolute;
-  inset: -16px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--card-glow, rgba(123,97,255,0.35)), transparent 70%);
-  z-index: -1;
-  filter: blur(2px);
-}
-
-.game-card-wheel .game-card-icon-badge {
-  background: linear-gradient(150deg, #ffe19c, var(--gold) 55%, #d9862c);
-}
-.game-card-aviator .game-card-icon-badge {
-  background: linear-gradient(150deg, #b3a4ff, var(--violet) 55%, #4d38c9);
-}
-
-.game-card-blackjack .game-card-icon-badge {
-  background: linear-gradient(150deg, #9df0d3, var(--green) 55%, #1f9d73);
-}
-
-/* Блэкджек — две перекрывающиеся игральные карты */
-
-.icon-cards {
-  position: relative;
-  width: 26px;
-  height: 26px;
-}
-.icon-cards::before,
-.icon-cards::after {
-  content: "";
-  position: absolute;
-  width: 17px;
-  height: 24px;
-  border-radius: 4px;
-  background: linear-gradient(160deg, #ffffff, #ddf7ea 70%);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
-}
-.icon-cards::before { left: 0; top: 1px; transform: rotate(-12deg); }
-.icon-cards::after { right: 0; bottom: 1px; transform: rotate(10deg); background: linear-gradient(160deg, #1f9d73, #0e6b4d 70%); }
-
-/* Колесо фортуны — сегменты через conic-gradient + стрелка-указатель */
-
-.icon-wheel {
-  position: relative;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: conic-gradient(
-    #241f38 0deg 45deg, #362e58 45deg 90deg,
-    #241f38 90deg 135deg, #362e58 135deg 180deg,
-    #241f38 180deg 225deg, #362e58 225deg 270deg,
-    #241f38 270deg 315deg, #362e58 315deg 360deg
-  );
-  box-shadow:
-    0 0 0 3px rgba(255,255,255,0.45),
-    inset 0 1px 2px rgba(0,0,0,0.35);
-}
-
-.icon-wheel::before {
-  content: "";
-  position: absolute;
-  top: -8px;
-  left: 50%;
-  transform: translateX(-50%);
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-bottom: 7px solid #fff;
-  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
-}
-
-.icon-wheel::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
-}
-
-/* Самолётик — силуэт бумажного самолёта из clip-path + линия сгиба */
-
-.icon-plane {
-  position: relative;
-  width: 28px;
-  height: 28px;
-  transform: rotate(-8deg);
-  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));
-}
-
-.icon-plane::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(160deg, #ffffff, #e3ddff 65%);
-  clip-path: polygon(50% 0%, 100% 100%, 50% 76%, 0% 100%);
-}
-
-.icon-plane::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 6%;
-  width: 2px;
-  height: 76%;
-  background: rgba(93, 74, 191, 0.45);
-  transform: translateX(-50%);
-}
-
-/* ---------- Иконки интерфейса (без эмодзи — только CSS-формы) ---------- */
-
-/* Кейс — коробка с крышкой и центральной "лентой" */
-
-.icon-case {
-  position: relative;
-  width: 28px;
-  height: 24px;
-  border-radius: 5px;
-  background: linear-gradient(160deg, #ffffff, #ffd8de 60%);
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.35), inset 0 1px 2px rgba(0,0,0,0.2);
-}
-.icon-case::before {
-  content: "";
-  position: absolute;
-  left: 0; right: 0; top: 0;
-  height: 7px;
-  background: rgba(184, 40, 63, 0.55);
-  border-radius: 5px 5px 0 0;
-}
-.icon-case::after {
-  content: "";
-  position: absolute;
-  left: 50%; top: 0; bottom: 0;
-  width: 4px;
-  transform: translateX(-50%);
-  background: rgba(184, 40, 63, 0.55);
-}
-
-.icon-logo {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  position: relative;
-  border-radius: 7px;
-  background: linear-gradient(135deg, var(--violet), var(--gold));
-  box-shadow: 0 4px 10px -3px rgba(123,97,255,0.6), inset 0 1px 0 rgba(255,255,255,0.35);
-}
-.icon-logo::before,
-.icon-logo::after {
-  content: "";
-  position: absolute;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #fff;
-}
-.icon-logo::before { top: 5px; left: 5px; }
-.icon-logo::after { bottom: 5px; right: 5px; }
-
-.icon-back {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-left: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg);
-}
-
-.icon-home {
-  position: relative;
-  display: inline-block;
-  width: 17px;
-  height: 15px;
-}
-.icon-home::before {
-  content: "";
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  border-left: 9px solid transparent;
-  border-right: 9px solid transparent;
-  border-bottom: 7px solid currentColor;
-}
-.icon-home::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 2px;
-  width: 13px;
-  height: 9px;
-  background: currentColor;
-  border-radius: 2px 2px 1px 1px;
-}
-
-.icon-user {
-  position: relative;
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-}
-.icon-user::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-}
-.icon-user::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 15px;
-  height: 8px;
-  border-radius: 8px 8px 0 0;
-  background: currentColor;
-}
-
-.icon-case-nav {
-  position: relative;
-  display: inline-block;
-  width: 17px;
-  height: 13px;
-  border: 2px solid currentColor;
-  border-radius: 3px;
-  margin-top: 4px;
-}
-.icon-case-nav::before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  right: 3px;
-  top: -6px;
-  height: 5px;
-  border: 2px solid currentColor;
-  border-bottom: none;
-  border-radius: 3px 3px 0 0;
-}
-
-.icon-user-lg { width: 30px; height: 30px; }
-.icon-user-lg::before { width: 13px; height: 13px; }
-.icon-user-lg::after { width: 28px; height: 15px; }
-
-/* ---------- Wheel screen ---------- */
-
-.wheel-screen {
-  position: relative;
-  z-index: 1;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 30px 20px 60px;
-}
-
-.wheel-layout {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  align-items: center;
-}
-
-.wheel-side {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  align-items: center;
-}
-
-.wheel-stage {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.wheel-pointer {
-  width: 0;
-  height: 0;
-  border-left: 16px solid transparent;
-  border-right: 16px solid transparent;
-  border-top: 26px solid var(--gold);
-  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));
-  margin-bottom: -6px;
-  z-index: 3;
-}
-
-.wheel-rim {
-  position: relative;
-  width: min(78vw, 380px);
-  height: min(78vw, 380px);
-  border-radius: 50%;
-  padding: 14px;
-  background: linear-gradient(145deg, #2c2650, #17142a);
-  box-shadow:
-    0 0 0 2px var(--panel-line),
-    0 30px 60px -20px rgba(0,0,0,0.7),
-    inset 0 0 0 1px rgba(255,255,255,0.05);
-}
-
-.wheel {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  overflow: hidden;
-  border: 3px solid rgba(255,255,255,0.08);
-  transition: transform 4.6s cubic-bezier(0.14, 0.85, 0.16, 1);
-  will-change: transform;
-}
-
-.wheel-seg-label {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform-origin: 50% 50%;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 15px;
-  color: rgba(0,0,0,0.72);
-  white-space: nowrap;
-}
-
-.wheel-hub {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffe2a1, var(--gold) 65%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: #241a06;
-  box-shadow: 0 0 0 6px var(--bg), 0 8px 20px rgba(0,0,0,0.5);
-  z-index: 4;
-}
-
-.result-badge {
-  margin-top: 20px;
-  padding: 10px 22px;
-  border-radius: 999px;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 15px;
-  background: var(--panel);
-  border: 1px solid var(--panel-line);
-  animation: pop-in 0.25s ease;
-}
-
-.result-badge.win { color: var(--green); border-color: rgba(51,214,159,0.4); }
-.result-badge.lose { color: var(--red); border-color: rgba(255,92,119,0.4); }
-.result-badge.flat { color: var(--text-dim); }
-
-@keyframes pop-in {
-  from { transform: scale(0.85); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
-}
-
-/* ---------- Control panel (общий для колеса и самолётика) ---------- */
-
-.control-panel {
-  width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  margin: 0 auto;
-}
-
-.bet-control {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  background: var(--panel);
-  border: 1px solid var(--panel-line);
-}
-
-.bet-label { font-size: 12.5px; color: var(--text-dim); }
-
-.bet-stepper {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.stepper-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: 1px solid var(--panel-line);
-  background: var(--bg-soft);
-  color: var(--text);
-  font-size: 17px;
-  font-weight: 700;
-  cursor: pointer;
-  line-height: 1;
-}
-
-.stepper-btn:hover { border-color: var(--violet); }
-
-.bet-value {
-  min-width: 32px;
-  text-align: center;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 17px;
-  color: var(--gold);
-}
-
-.bet-value-input {
-  width: 4.5ch;
-  padding: 2px 2px 3px;
-  border: none;
-  border-bottom: 1.5px solid transparent;
-  background: transparent;
-  border-radius: 4px;
-  outline: none;
-  -moz-appearance: textfield;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-.bet-value-input::-webkit-outer-spin-button,
-.bet-value-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-.bet-value-input:hover { background: rgba(255,255,255,0.04); }
-.bet-value-input:focus { border-bottom-color: var(--gold); background: rgba(255,255,255,0.06); }
-.bet-value-input::selection { background: rgba(255,200,87,0.35); }
-
-.bet-unit { font-size: 12.5px; color: var(--text-dim); }
-
-.btn-spin {
-  width: 100%;
-  padding: 18px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--gold), #ffb347);
-  color: #241a06;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  box-shadow: 0 16px 30px -14px rgba(255,200,87,0.55);
-}
-
-.btn-spin.is-cashout {
-  background: linear-gradient(135deg, var(--green), #23b585);
-  box-shadow: 0 16px 30px -14px rgba(51,214,159,0.55);
-}
-
-.btn-spin:disabled,
-.btn-spin.is-busy {
-  opacity: 0.6;
-  pointer-events: none;
-}
-
-.btn-spin-text { font-family: var(--font-display); font-size: 17px; }
-.btn-spin-cost { font-family: var(--font-mono); font-size: 12.5px; opacity: 0.75; }
-
-.spin-error {
-  margin: 0;
-  color: var(--red);
-  font-size: 13px;
-}
-
-/* ---------- Legend / history list ---------- */
-
-.legend, .history-panel {
-  width: 100%;
-  max-width: 420px;
-  padding: 18px 20px;
-  border-radius: 16px;
-  background: var(--panel);
-  border: 1px solid var(--panel-line);
-  margin: 0 auto;
-}
-
-.legend-title {
-  margin: 0 0 12px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-dim);
-  font-weight: 700;
-}
-
-.legend-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 16px;
-}
-
-.legend-list li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
-.legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  flex-shrink: 0;
-}
-
-.history-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 220px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.history-list li {
-  display: flex;
-  justify-content: space-between;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--bg-soft);
-}
-
-.history-list li.cashed-out { color: var(--green); }
-.history-list li.pending { color: var(--text-dim); }
-
-.history-empty {
-  color: var(--text-dim);
-  font-family: var(--font-body) !important;
-  justify-content: center !important;
-}
-
-/* ---------- Последние игры (всех игроков) ---------- */
-
-.recent-games-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.recent-game-row {
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--bg-soft);
-}
-
-.rg-top,
-.rg-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.rg-top {
-  margin-bottom: 4px;
-}
-
-.rg-name {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rg-time {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.rg-bet {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.rg-result {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.rg-result.change-positive { color: var(--green); }
-.rg-result.change-negative { color: var(--red); }
-.rg-result.change-neutral { color: var(--text-dim); }
-
-/* ---------- Самолётик ---------- */
-
-.aviator-screen {
-  position: relative;
-  z-index: 1;
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 20px 20px 60px;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  align-items: center;
-}
-
-.aviator-layout {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  align-items: center;
-}
-
-.aviator-side {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  align-items: center;
-}
-
-.aviator-stage {
-  position: relative;
-  width: 100%;
-  height: 320px;
-  border-radius: 24px;
-  overflow: hidden;
-  background:
-    radial-gradient(ellipse 90% 70% at 20% 100%, rgba(123,97,255,0.20), transparent 60%),
-    radial-gradient(ellipse 60% 50% at 90% 0%, rgba(255,200,87,0.14), transparent 60%),
-    linear-gradient(165deg, #1c1833 0%, #14111f 55%, #0e0c17 100%);
-  border: 1px solid var(--panel-line);
-  box-shadow:
-    0 30px 70px -30px rgba(0,0,0,0.75),
-    inset 0 0 0 1px rgba(255,255,255,0.03);
-}
-
-/* Мелкая звёздная пыль + едва заметная сетка высоты — придаёт серьёзности "приборной панели" */
-.aviator-stage-grid {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.9;
-  background-image:
-    radial-gradient(1.5px 1.5px at 12% 20%, rgba(255,255,255,0.55), transparent 60%),
-    radial-gradient(1.5px 1.5px at 32% 12%, rgba(255,255,255,0.4), transparent 60%),
-    radial-gradient(1px 1px at 55% 30%, rgba(255,255,255,0.5), transparent 60%),
-    radial-gradient(1.5px 1.5px at 75% 15%, rgba(255,255,255,0.35), transparent 60%),
-    radial-gradient(1px 1px at 90% 35%, rgba(255,255,255,0.45), transparent 60%),
-    radial-gradient(1.5px 1.5px at 22% 45%, rgba(255,255,255,0.3), transparent 60%),
-    radial-gradient(1px 1px at 68% 55%, rgba(255,255,255,0.3), transparent 60%),
-    repeating-linear-gradient(to top, rgba(255,255,255,0.05) 0px, rgba(255,255,255,0.05) 1px, transparent 1px, transparent 20%);
-}
-
-.aviator-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 1;
-}
-
-.aviator-plane {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 34px;
-  height: 34px;
-  z-index: 2;
-  transform: translate(-50%, -50%) rotate(-25deg);
-  filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 10px rgba(255,200,87,0.55));
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
-.aviator-plane svg { display: block; width: 100%; height: 100%; }
-.aviator-plane.is-crashed { filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)) drop-shadow(0 0 10px rgba(255,92,119,0.6)); }
-.aviator-plane.is-hidden { opacity: 0; }
-
-.aviator-readout {
-  position: absolute;
-  top: 18px;
-  left: 20px;
-  z-index: 3;
-  pointer-events: none;
-  padding: 12px 18px;
-  border-radius: 16px;
-  background: rgba(10,9,16,0.45);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255,255,255,0.08);
-}
-
-.aviator-readout-label {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin: 0 0 2px;
-}
-
-.aviator-multiplier {
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: 40px;
-  line-height: 1.05;
-  color: var(--gold);
-  text-shadow: 0 0 26px rgba(255,200,87,0.45);
-}
-
-.aviator-multiplier.is-crashed { color: var(--red); text-shadow: 0 0 26px rgba(255,92,119,0.5); }
-
-.aviator-status {
-  position: absolute;
-  bottom: 16px;
-  left: 20px;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: rgba(10,9,16,0.45);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(255,255,255,0.08);
-  font-size: 12.5px;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-}
-
-.aviator-status::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-dim);
-  box-shadow: 0 0 0 0 rgba(255,255,255,0);
-}
-
-/* ---------- Блэкджек ---------- */
-
-.bj-stage {
-  z-index: 1;
-  height: auto;
-  min-height: 320px;
-  overflow: visible;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  align-items: center;
-  padding: 20px;
-  gap: 16px;
-}
-
-.bj-stage #bjStatus {
-  position: static;
-  margin-top: 4px;
-  text-align: center;
-}
-.bj-stage #bjStatus::before { display: none; }
-
-.bj-hand {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.bj-hand-label {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-dim);
-  letter-spacing: 0.02em;
-}
-.bj-hand-total { color: var(--text); font-weight: 700; }
-
-.bj-cards {
-  display: flex;
-  gap: 8px;
-  min-height: 76px;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.bj-card {
-  width: 52px;
-  height: 72px;
-  border-radius: 8px;
-  background: linear-gradient(160deg, #ffffff, #eae7fb 70%);
-  box-shadow: 0 6px 14px -6px rgba(0,0,0,0.5);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 16px;
-  color: #241f38;
-  animation: bj-deal 0.25s ease-out;
-}
-.bj-card.is-red { color: var(--red); }
-.bj-card-back {
-  background: repeating-linear-gradient(135deg, var(--violet), var(--violet) 6px, #4d38c9 6px, #4d38c9 12px);
-  border: 2px solid rgba(255,255,255,0.25);
-}
-
-@keyframes bj-deal {
-  from { transform: translateY(-14px) scale(0.9); opacity: 0; }
-  to { transform: translateY(0) scale(1); opacity: 1; }
-}
-
-.bj-actions {
-  width: 100%;
-  display: flex;
-  gap: 8px;
-}
-.bj-actions .btn-ghost {
-  flex: 1;
-  padding: 13px 10px;
-  font-size: 14px;
-}
-
-.aviator-screen.is-flying .aviator-status::before {
-  background: var(--green);
-  box-shadow: 0 0 0 4px rgba(51,214,159,0.18);
-  animation: aviator-pulse-dot 1.1s ease-in-out infinite;
-}
-
-.aviator-screen.is-crashed .aviator-status::before {
-  background: var(--red);
-  box-shadow: 0 0 0 4px rgba(255,92,119,0.18);
-}
-
-@keyframes aviator-pulse-dot {
-  0%, 100% { box-shadow: 0 0 0 4px rgba(51,214,159,0.18); }
-  50% { box-shadow: 0 0 0 7px rgba(51,214,159,0.05); }
-}
-
-@media (min-width: 900px) {
-  .wheel-screen { max-width: 1040px; padding-top: 32px; }
-
-  .wheel-layout {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 32px;
+(function () {
+  "use strict";
+
+  const API_BASE = window.API_BASE.replace(/\/$/, "");
+  const TOKEN_KEY = "gc_token";
+
+  const SEGMENT_COLORS = {
+    "x0": "#ff5c77",
+    "x1": "#4b4570",
+    "x0.5": "#ff8fa3",
+    "x1.5": "#8fe3c4",
+    "x2": "#33d69f",
+    "🎁 +1": "#7b61ff",
+    "x3": "#ffc857",
+    "x5": "#ff9f1c",
+  };
+
+  const GAME_NAMES = { wheel: "Колесо Фортуны", aviator: "Авиатор", blackjack: "Блэкджек", case: "Кейсы"};
+
+  const els = {
+    preloader: document.getElementById("preloader"),
+    lettersWrap: document.querySelector(".preloader-letters"),
+    lettersFill: document.getElementById("lettersFill"),
+
+    backBtn: document.getElementById("backBtn"),
+    bottomNav: document.getElementById("bottomNav"),
+    balanceChip: document.getElementById("balanceChip"),
+    balanceValue: document.getElementById("balanceValue"),
+
+    loginScreen: document.getElementById("loginScreen"),
+    mainMenuScreen: document.getElementById("mainMenuScreen"),
+    casesScreen: document.getElementById("casesScreen"),
+    caseDetailScreen: document.getElementById("caseDetailScreen"),
+    wheelScreen: document.getElementById("wheelScreen"),
+    aviatorScreen: document.getElementById("aviatorScreen"),
+    blackjackScreen: document.getElementById("blackjackScreen"),
+    profileScreen: document.getElementById("profileScreen"),
+    historyScreen: document.getElementById("historyScreen"),
+
+    idForm: document.getElementById("idForm"),
+    telegramId: document.getElementById("telegramId"),
+    sendCodeBtn: document.getElementById("sendCodeBtn"),
+
+    codeForm: document.getElementById("codeForm"),
+    codeInput: document.getElementById("codeInput"),
+    verifyBtn: document.getElementById("verifyBtn"),
+    resendBtn: document.getElementById("resendBtn"),
+    loginError: document.getElementById("loginError"),
+
+    wheel: document.getElementById("wheel"),
+    resultBadge: document.getElementById("resultBadge"),
+    legendList: document.getElementById("legendList"),
+    wheelRecentGamesList: document.getElementById("wheelRecentGamesList"),
+
+    betMinus: document.getElementById("betMinus"),
+    betPlus: document.getElementById("betPlus"),
+    betValue: document.getElementById("betValue"),
+    spinBtn: document.getElementById("spinBtn"),
+    spinCost: document.getElementById("spinCost"),
+    spinError: document.getElementById("spinError"),
+
+    profileName: document.getElementById("profileName"),
+    profileId: document.getElementById("profileId"),
+    profileBalance: document.getElementById("profileBalance"),
+    openHistoryBtn: document.getElementById("openHistoryBtn"),
+    logoutBtn: document.getElementById("logoutBtn"),
+
+    historyTableBody: document.getElementById("historyTableBody"),
+  };
+
+  // Общее состояние приложения — доступно и aviator.js через window.AppState
+  window.AppState = {
+    telegramId: null,
+    username: null,
+    getToken: () => localStorage.getItem(TOKEN_KEY),
+    setBalance: setBalance,
+  };
+
+  let pendingTelegramId = null;
+  let sections = [];
+  let minBet = 5, betStep = 5, maxBet = 100;
+  let bet = 5;
+  let currentDeg = 0;
+  let spinning = false;
+
+  // ---------- роутер экранов ----------
+
+const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
+  const screenStack = ["mainMenuScreen"];
+  let lastTopLevelScreen = "mainMenuScreen";
+
+  // Проигрывает анимацию входа для экрана: слайд вправо/влево при
+  // переключении между "Главная" и "Профиль" в нижнем меню, иначе — плавное появление.
+  function playScreenAnim(el, screenId, isSubScreen) {
+    el.classList.remove("screen-anim-fade", "screen-anim-right", "screen-anim-left");
+    void el.offsetWidth;
+
+    let anim = "screen-anim-fade";
+    if (!isSubScreen) {
+      const prevIndex = TOP_LEVEL_SCREENS.indexOf(lastTopLevelScreen);
+      const nextIndex = TOP_LEVEL_SCREENS.indexOf(screenId);
+      if (prevIndex !== -1 && nextIndex !== -1 && prevIndex !== nextIndex) {
+        anim = nextIndex > prevIndex ? "screen-anim-right" : "screen-anim-left";
+      }
+      lastTopLevelScreen = screenId;
+    }
+    el.classList.add(anim);
   }
 
-  .wheel-stage {
-    flex: 1 1 640px;
+  async function navigateTo(screenId, { push = true } = {}) {
+    // Открытие самих игр сопровождаем коротким экраном загрузки с теми
+    // же буквами GP, что и на старте приложения — под ним успевает
+    // подготовиться экран (canvas самолётика меряет себя, тянутся
+    // актуальные данные раунда), и переключение выглядит как осознанная
+    // загрузка, а не мгновенный, но "дёрганый" щелчок между экранами.
+    const isGameScreen = screenId === "wheelScreen" || screenId === "aviatorScreen" || screenId === "blackjackScreen";
+    let fillDone = null;
+    if (isGameScreen) {
+      fillDone = showGameLoader();
+    }
+
+    [
+      "loginScreen", "mainMenuScreen", "casesScreen", "caseDetailScreen", "wheelScreen",
+      "aviatorScreen", "blackjackScreen", "profileScreen", "historyScreen",
+    ].forEach((id) => document.getElementById(id).classList.add("hidden"));
+
+    const screenEl = document.getElementById(screenId);
+    screenEl.classList.remove("hidden");
+
+    // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
+    // история) — кнопка "назад" видна в самих играх (колесо, самолётик, блэкджек).
+    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen", "caseDetailScreen"].includes(screenId);
+    els.bottomNav.classList.toggle("hidden", isSubScreen);
+    els.backBtn.classList.toggle("hidden", !isSubScreen);
+
+    document.querySelectorAll(".nav-btn").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.target === screenId);
+    });
+
+    playScreenAnim(screenEl, screenId, isSubScreen);
+
+    if (push) {
+      if (!isSubScreen) {
+        screenStack.length = 0;
+      }
+      screenStack.push(screenId);
+    }
+
+    let dataReady = Promise.resolve();
+    if (screenId === "aviatorScreen" && window.AviatorGame) {
+      // Экран уже видим (снят .hidden), поэтому canvas корректно измеряет
+      // себя внутри onEnter — грузим данные раунда, пока сверху ещё виден лоадер.
+      dataReady = window.AviatorGame.onEnter();
+    }
+    if (screenId === "wheelScreen") {
+      dataReady = window.AppState.fetchRecentGames(els.wheelRecentGamesList, "wheel");
+    }
+    if (screenId === "blackjackScreen" && window.BlackjackGame) {
+      dataReady = window.BlackjackGame.onEnter();
+    }
+    if (screenId === "casesScreen" && window.CasesGame) {
+      dataReady = window.CasesGame.onEnter();
+    }
+    if (screenId === "historyScreen") {
+      loadGamesHistory();
+    }
+
+    if (isGameScreen) {
+      await Promise.all([fillDone, dataReady]);
+      hideGameLoader();
+    }
   }
 
-  .wheel-side {
-    flex: 0 0 340px;
-    width: 340px;
-    gap: 22px;
+  els.backBtn.addEventListener("click", () => {
+    screenStack.pop();
+    const prev = screenStack[screenStack.length - 1] || "mainMenuScreen";
+    navigateTo(prev, { push: false });
+  });
+
+  document.querySelectorAll(".game-card, .nav-btn").forEach((btn) => {
+    btn.addEventListener("click", () => navigateTo(btn.dataset.target));
+  });
+
+  // ---------- login flow ----------
+
+  els.idForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideError();
+    const raw = els.telegramId.value.trim();
+    if (!/^\d+$/.test(raw)) {
+      showError("Telegram ID должен состоять только из цифр");
+      return;
+    }
+    pendingTelegramId = Number(raw);
+    setBusy(els.sendCodeBtn, true, "Отправляем...");
+    try {
+      await api("/api/auth/request-code", { method: "POST", body: { telegram_id: pendingTelegramId } });
+      els.idForm.classList.add("hidden");
+      els.codeForm.classList.remove("hidden");
+      els.codeInput.focus();
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setBusy(els.sendCodeBtn, false, "Отправить код");
+    }
+  });
+
+  els.resendBtn.addEventListener("click", async () => {
+    hideError();
+    setBusy(els.resendBtn, true, "Отправляем...");
+    try {
+      await api("/api/auth/request-code", { method: "POST", body: { telegram_id: pendingTelegramId } });
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setBusy(els.resendBtn, false, "Отправить код ещё раз");
+    }
+  });
+
+  els.codeForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    hideError();
+    const code = els.codeInput.value.trim();
+    if (!code) return;
+    setBusy(els.verifyBtn, true, "Проверяем...");
+    try {
+      const data = await api("/api/auth/verify", {
+        method: "POST",
+        body: { telegram_id: pendingTelegramId, code },
+      });
+      localStorage.setItem(TOKEN_KEY, data.token);
+      await enterApp();
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setBusy(els.verifyBtn, false, "Войти");
+    }
+  });
+
+  els.logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem(TOKEN_KEY);
+    window.location.reload();
+  });
+
+  function showError(msg) {
+    els.loginError.textContent = msg;
+    els.loginError.classList.remove("hidden");
+  }
+  function hideError() {
+    els.loginError.classList.add("hidden");
+  }
+  function setBusy(btn, busy, label) {
+    btn.disabled = busy;
+    btn.textContent = label;
   }
 
-  .wheel-side .control-panel,
-  .wheel-side .legend {
-    max-width: none;
-  }
-}
+  // ---------- app screen ----------
 
-@media (min-width: 900px) {
-  .aviator-screen { max-width: 1040px; padding-top: 32px; }
+  async function enterApp() {
+    const me = await api("/api/me", { auth: true });
+    sections = me.sections;
+    minBet = me.min_bet;
+    betStep = me.bet_step;
+    maxBet = me.max_bet;
+    bet = minBet;
 
-  .aviator-layout {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 32px;
-  }
+    window.AppState.telegramId = me.telegram_id;
+    window.AppState.username = me.username;
 
-  .aviator-stage {
-    flex: 1 1 640px;
-    height: 480px;
-    border-radius: 28px;
-  }
+    els.loginScreen.classList.add("hidden");
+    els.balanceChip.classList.remove("hidden");
+    setBalance(me.balance);
 
-  .aviator-multiplier { font-size: 58px; }
-  .aviator-readout { padding: 16px 22px; top: 24px; left: 24px; }
-  .aviator-status { bottom: 22px; left: 24px; padding: 9px 16px; font-size: 13px; }
+    buildWheel();
+    buildLegend();
+    updateBetUI();
 
-  .aviator-side {
-    flex: 0 0 340px;
-    width: 340px;
-    gap: 22px;
+    els.profileName.textContent = me.username || String(me.telegram_id);
+    els.profileId.textContent = `ID: ${me.telegram_id}`;
+    els.profileBalance.textContent = me.balance;
+
+    navigateTo("mainMenuScreen");
   }
 
-  .aviator-side .control-panel,
-  .aviator-side .legend {
-    max-width: none;
-  }
-}
-
-/* ---------- Профиль ---------- */
-
-.profile-screen {
-  position: relative;
-  z-index: 1;
-  max-width: 420px;
-  margin: 0 auto;
-  padding: 40px 20px 60px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-}
-
-.profile-card {
-  width: 100%;
-  padding: 32px 24px;
-  border-radius: 20px;
-  background: var(--panel);
-  border: 1px solid var(--panel-line);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  text-align: center;
-}
-
-.profile-avatar {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--violet), #9b7bff);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
-  margin-bottom: 6px;
-}
-
-.profile-name { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin: 0; }
-.profile-id { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-dim); margin: 0 0 10px; }
-
-.profile-balance {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 10px 20px;
-  border-radius: 999px;
-  background: var(--bg-soft);
-  border: 1px solid var(--panel-line);
-}
-
-.btn-history { width: 100%; }
-
-/* ---------- История игр ---------- */
-
-.history-screen {
-  position: relative;
-  z-index: 1;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 32px 20px 60px;
-}
-
-.history-table-wrap {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  border-radius: 16px;
-  border: 1px solid var(--panel-line);
-  background: var(--panel);
-}
-
-.history-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-  min-width: 520px;
-}
-
-.history-table th {
-  text-align: left;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--panel-line);
-}
-
-.history-table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--panel-line);
-  font-family: var(--font-mono);
-}
-
-.history-table tr:last-child td { border-bottom: none; }
-
-.history-table .game-id-cell {
-  color: var(--text-dim);
-  font-size: 11.5px;
-}
-
-.history-table .change-positive { color: var(--green); }
-.history-table .change-negative { color: var(--red); }
-
-/* ---------- Нижняя навигация ---------- */
-
-.bottom-nav {
-  position: fixed;
-  left: 50%;
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 7px;
-  border-radius: 22px;
-  background: rgba(24,21,38,0.82);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.07);
-  box-shadow:
-    0 14px 34px rgba(0,0,0,0.5),
-    0 2px 8px rgba(0,0,0,0.3),
-    inset 0 1px 0 rgba(255,255,255,0.05);
-}
-
-.nav-btn {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  background: none;
-  border: none;
-  border-radius: 16px;
-  color: var(--text-dim);
-  font-family: var(--font-body);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  padding: 8px 22px;
-  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease;
-}
-
-.nav-btn:active { transform: scale(0.94); }
-
-.nav-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 19px;
-  height: 17px;
-  line-height: 1;
-  transition: transform 0.2s ease, filter 0.2s ease;
-}
-
-.nav-btn.is-active {
-  color: var(--gold);
-  background: rgba(255,200,87,0.14);
-}
-
-.nav-btn.is-active .nav-icon {
-  transform: translateY(-1px);
-  filter: drop-shadow(0 0 6px rgba(255,200,87,0.55));
-}
-
-/* ---------- Анимации переключения разделов ---------- */
-
-@keyframes screen-fade-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes screen-slide-right-in {
-  from { opacity: 0; transform: translateX(26px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-@keyframes screen-slide-left-in {
-  from { opacity: 0; transform: translateX(-26px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-.screen-anim-fade { animation: screen-fade-in 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
-.screen-anim-right { animation: screen-slide-right-in 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
-.screen-anim-left { animation: screen-slide-left-in 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
-
-@media (max-width: 520px) {
-  .topbar { margin: calc(8px + env(safe-area-inset-top)) 10px 0; padding: 12px 16px; border-radius: 16px; }
-  .login-card { padding: 30px 22px; }
-  .login-title { font-size: 25px; }
-  .game-grid { gap: 10px; }
-  .icon-wheel { width: 26px; height: 26px; }
-  .icon-plane { width: 24px; height: 24px; }
-  .aviator-stage { height: 260px; border-radius: 18px; }
-  .aviator-multiplier { font-size: 32px; }
-  .aviator-readout { padding: 9px 14px; top: 12px; left: 14px; }
-  .aviator-status { bottom: 12px; left: 14px; padding: 6px 12px; font-size: 11.5px; }
-
-  /* Более крупные зоны нажатия для степпера ставки — 30px было мало
-     для пальца, из-за этого на телефоне легко промахнуться. */
-  .stepper-btn { width: 38px; height: 38px; font-size: 19px; }
-  .bet-control { padding: 8px 14px; gap: 10px; }
-  .bet-stepper { gap: 8px; }
-
-  .menu-screen, .cases-screen, .wheel-screen, .aviator-screen, .profile-screen, .history-screen {
-    padding-left: 14px;
-    padding-right: 14px;
+  function setBalance(v) {
+    els.balanceValue.textContent = v;
+    els.profileBalance.textContent = v;
   }
 
-  .wheel-hub { width: 54px; height: 54px; font-size: 10px; }
-  .wheel-seg-label { font-size: 12.5px; }
-  .result-badge { font-size: 13.5px; padding: 9px 16px; }
+  function buildWheel() {
+    const n = sections.length;
+    const step = 360 / n;
+    const stops = sections
+      .map((s, i) => {
+        const color = SEGMENT_COLORS[s.label] || "#4b4570";
+        return `${color} ${i * step}deg ${(i + 1) * step}deg`;
+      })
+      .join(", ");
+    els.wheel.style.background = `conic-gradient(${stops})`;
 
-  .balance-chip { padding: 7px 12px; gap: 6px; }
-  .balance-value { font-size: 15px; }
-  .brand-text { font-size: 16px; }
-}
+    els.wheel.querySelectorAll(".wheel-seg-label").forEach((el) => el.remove());
 
-/* Совсем узкие экраны (маленькие/бюджетные телефоны, ~360px и уже,
-   и Telegram Mini App в свёрнутом/half-height режиме, где вьюпорт
-   часто оказывается уже, чем кажется). */
-@media (max-width: 380px) {
-  .game-grid { gap: 8px; }
-  .game-card { grid-template-columns: 46px 1fr; column-gap: 12px; min-height: 76px; padding: 13px 16px; }
-  .game-card-name { font-size: 13.5px; }
-  .game-card-sub { font-size: 11px; }
-  .game-card-icon-badge { width: 46px; height: 46px; border-radius: 14px; }
-  .icon-wheel { width: 22px; height: 22px; }
-  .icon-plane { width: 20px; height: 20px; }
-  .game-card-arrow { display: none; }
-
-  .legend-list { grid-template-columns: 1fr; }
-  .control-panel, .legend { max-width: 100%; }
-
-  .balance-label { display: none; }
-  .brand-text { font-size: 15px; }
-  .topbar { padding: 10px 12px; gap: 8px; }
-
-  .btn-spin { padding: 15px; }
-  .btn-spin-text { font-size: 15.5px; }
-}
-
-/* ---------- Экономия ресурсов на телефонах ---------- */
-/* Мобильные GPU заметно слабее десктопных — тяжёлые непрерывные эффекты
-   (SVG-шум с feTurbulence, глубокий backdrop-blur сразу на двух плавающих
-   панелях) на бюджетных устройствах превращаются в лаги при скролле и
-   анимациях. На узких экранах отключаем/облегчаем именно их, не трогая
-   сам внешний вид карточек и текста. */
-@media (max-width: 640px) {
-  .noise-overlay { display: none; }
-  .topbar, .bottom-nav {
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    const radiusPx = els.wheel.clientWidth * 0.31 || 105;
+    sections.forEach((s, i) => {
+      const center = i * step + step / 2;
+      const rad = (center * Math.PI) / 180;
+      const x = radiusPx * Math.sin(rad);
+      const y = -radiusPx * Math.cos(rad);
+      const label = document.createElement("div");
+      label.className = "wheel-seg-label";
+      label.textContent = s.label;
+      label.style.left = `calc(50% + ${x}px)`;
+      label.style.top = `calc(50% + ${y}px)`;
+      label.style.transform = `translate(-50%, -50%) rotate(${center}deg)`;
+      els.wheel.appendChild(label);
+    });
   }
-  .aviator-stage-grid { background-image: none; }
-}
 
-/* ---------- Экран "Кейсы" (список кейсов) ---------- */
-
-.case-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-}
-@media (min-width: 560px) {
-  .case-grid { grid-template-columns: repeat(3, 1fr); gap: 16px; }
-}
-@media (min-width: 860px) {
-  .case-grid { grid-template-columns: repeat(4, 1fr); }
-}
-
-.case-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-  background: none;
-  border: none;
-  box-shadow: none;
-  padding: 0;
-  cursor: pointer;
-  transition: transform 0.15s ease;
-}
-.case-card:hover { transform: translateY(-4px); }
-.case-card:active { transform: scale(0.96); }
-
-.case-card-badge {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 2;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: linear-gradient(120deg, var(--gold), #d9862c);
-  color: #1c1420;
-  font-family: var(--font-body);
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.case-card-img {
-  width: 100%;
-  max-width: 170px;
-  aspect-ratio: 1 / 1;
-  object-fit: contain;
-  filter: drop-shadow(0 14px 22px rgba(0,0,0,0.55));
-}
-
-.case-card-price {
-  position: relative;
-  z-index: 2;
-  margin-top: -14px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 14px;
-  border-radius: 999px;
-  background: rgba(18,16,28,0.92);
-  border: 1px solid rgba(255,200,87,0.35);
-  color: var(--gold);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 13px;
-  box-shadow: 0 6px 14px -4px rgba(0,0,0,0.5);
-}
-
-.icon-chance-coin {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ffe19c, var(--gold) 60%, #d9862c);
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.5);
-}
-
-.case-card-name {
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text);
-  margin-top: 8px;
-  text-align: center;
-}
-
-/* ---------- Иконка "Кейсы" для нижней навигации ---------- */
-
-.icon-case {
-  position: relative;
-  display: inline-block;
-  width: 17px;
-  height: 15px;
-}
-.icon-case::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: currentColor;
-  border-radius: 3px;
-  opacity: 0.9;
-}
-.icon-case::after {
-  content: "";
-  position: absolute;
-  top: 45%;
-  left: 2px;
-  right: 2px;
-  height: 2px;
-  background: var(--bg);
-  border-radius: 1px;
-}
-
-/* Центральная кнопка ("Главная") — крупнее и приподнята над остальными,
-   чтобы визуально читалась как главная точка входа. */
-.nav-btn-main {
-  padding: 10px 26px;
-  transform: scale(1.12);
-}
-.nav-btn-main .nav-icon { width: 22px; height: 20px; }
-.nav-btn-main:active { transform: scale(1.06); }
-.nav-btn-main.is-active { transform: scale(1.12); }
-
-/* Пользователь просит систему не анимировать лишнее — уважаем это
-   и на телефонах, и на десктопе. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
+  function buildLegend() {
+    els.legendList.innerHTML = "";
+    sections.forEach((s) => {
+      const li = document.createElement("li");
+      const dot = document.createElement("span");
+      dot.className = "legend-dot";
+      dot.style.background = SEGMENT_COLORS[s.label] || "#4b4570";
+      const chance = (s.weight / 10).toFixed(1).replace(/\.0$/, "");
+      const text = document.createElement("span");
+      text.textContent = `${s.label} — ${chance}%`;
+      li.appendChild(dot);
+      li.appendChild(text);
+      els.legendList.appendChild(li);
+    });
   }
-}
 
-/* ---------- Экран "Кейсы" (общий контейнер для списка и деталки) ---------- */
+  function updateBetUI() {
+    els.betValue.value = bet;
+    els.spinCost.textContent = `−${bet} шансов`;
+    els.betMinus.disabled = bet <= minBet;
+    els.betPlus.disabled = bet >= maxBet;
+  }
 
-.cases-screen {
-  position: relative;
-  z-index: 1;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 24px 20px 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
+  function clampBet(value) {
+    const n = Math.floor(Number(value));
+    if (!Number.isFinite(n)) return bet;
+    return Math.min(maxBet, Math.max(minBet, n));
+  }
 
-.case-hero {
-  text-align: center;
-  padding: 28px 20px 24px;
-  border-radius: 20px;
-  border: 1px solid var(--panel-line);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255,92,119,0.16), transparent 60%),
-    linear-gradient(155deg, #262143 0%, var(--panel) 55%, #1c1930 100%);
-  box-shadow: 0 14px 28px -18px rgba(0,0,0,0.7);
-}
+  els.betMinus.addEventListener("click", () => {
+    bet = Math.max(minBet, bet - betStep);
+    updateBetUI();
+  });
+  els.betPlus.addEventListener("click", () => {
+    bet = Math.min(maxBet, bet + betStep);
+    updateBetUI();
+  });
 
-.case-hero-icon-badge {
-  width: 76px;
-  height: 76px;
-  margin: 0 auto 14px;
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(150deg, #ffb3c0, var(--red) 55%, #b8283f);
-  box-shadow: 0 14px 26px -8px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.3);
-}
+  els.betValue.addEventListener("input", () => {
+    // Не даём вводить ничего, кроме цифр, пока пользователь печатает.
+    els.betValue.value = els.betValue.value.replace(/[^0-9]/g, "");
+  });
+  els.betValue.addEventListener("change", () => {
+    bet = clampBet(els.betValue.value);
+    updateBetUI();
+  });
+  els.betValue.addEventListener("blur", () => {
+    bet = clampBet(els.betValue.value);
+    updateBetUI();
+  });
+  els.betValue.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") els.betValue.blur();
+  });
 
-.icon-case-lg {
-  position: relative;
-  width: 40px;
-  height: 34px;
-  border-radius: 7px;
-  background: linear-gradient(160deg, #ffffff, #ffd8de 60%);
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.35), inset 0 1px 2px rgba(0,0,0,0.2);
-}
-.icon-case-lg::before {
-  content: "";
-  position: absolute;
-  left: 0; right: 0; top: 0;
-  height: 10px;
-  background: rgba(184, 40, 63, 0.55);
-  border-radius: 7px 7px 0 0;
-}
-.icon-case-lg::after {
-  content: "";
-  position: absolute;
-  left: 50%; top: 0; bottom: 0;
-  width: 5px;
-  transform: translateX(-50%);
-  background: rgba(184, 40, 63, 0.55);
-}
+  els.spinBtn.addEventListener("click", async () => {
+    if (spinning) return;
+    els.spinError.classList.add("hidden");
+    els.resultBadge.classList.add("hidden");
+    spinning = true;
+    els.spinBtn.disabled = true;
+    els.betValue.disabled = true;
 
-.case-hero-name {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 19px;
-  margin: 0 0 4px;
-}
+    try {
+      const data = await api("/api/spin", { method: "POST", auth: true, body: { bet } });
+      animateTo(data.section_index, () => showResult(data));
+    } catch (err) {
+      els.spinError.textContent = err.message;
+      els.spinError.classList.remove("hidden");
+      spinning = false;
+      els.spinBtn.disabled = false;
+      els.betValue.disabled = false;
+    }
+  });
 
-.case-hero-sub {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin: 0 0 20px;
-}
+  function animateTo(index, onDone) {
+    const n = sections.length;
+    const step = 360 / n;
+    const center = index * step + step / 2;
+    const jitter = (Math.random() - 0.5) * (step * 0.5);
+    const targetMod = ((360 - center - jitter) % 360 + 360) % 360;
 
-.case-open-btn {
-  max-width: 280px;
-  margin: 0 auto;
-}
+    const extraSpins = 5;
+    let newDeg = currentDeg - (currentDeg % 360) + extraSpins * 360 + targetMod;
+    if (newDeg <= currentDeg) newDeg += 360;
 
-.case-hero .result-badge { margin-top: 14px; }
+    currentDeg = newDeg;
+    els.wheel.style.transform = `rotate(${currentDeg}deg)`;
 
-.case-content-panel { padding-top: 4px; }
+    window.setTimeout(() => {
+      spinning = false;
+      els.spinBtn.disabled = false;
+      els.betValue.disabled = false;
+      onDone();
+    }, 4700);
+  }
 
-.case-items-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  margin-top: 12px;
-}
+  function showResult(data) {
+    setBalance(data.new_balance);
+    const net = data.payout - data.bet;
+    els.resultBadge.classList.remove("hidden", "win", "lose", "flat");
+    if (net > 0) {
+      els.resultBadge.classList.add("win");
+      els.resultBadge.textContent = `${data.label} · +${net} шансов`;
+    } else if (net < 0) {
+      els.resultBadge.classList.add("lose");
+      els.resultBadge.textContent = `${data.label} · −${Math.abs(net)} шансов`;
+    } else {
+      els.resultBadge.classList.add("flat");
+      els.resultBadge.textContent = `${data.label} · ставка возвращена`;
+    }
+    window.AppState.fetchRecentGames(els.wheelRecentGamesList, "wheel");
+  }
 
-@media (min-width: 480px) {
-  .case-items-grid { grid-template-columns: repeat(3, 1fr); }
-}
-@media (min-width: 720px) {
-  .case-items-grid { grid-template-columns: repeat(4, 1fr); }
-}
+  // ---------- история игр (профиль) ----------
 
-.case-item {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 16px 10px 12px;
-  border-radius: 14px;
-  border: 1px solid var(--panel-line);
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.12));
-  text-align: center;
-  transition: transform 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
-}
+  async function loadGamesHistory() {
+    els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Загрузка…</td></tr>`;
+    try {
+      const data = await api("/api/games/history", { auth: true });
+      if (!data.rounds.length) {
+        els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Пока пусто — сыграйте первую игру.</td></tr>`;
+        return;
+      }
+      els.historyTableBody.innerHTML = "";
+      data.rounds.forEach((r) => {
+        const tr = document.createElement("tr");
+        const changeClass = r.balance_change > 0 ? "change-positive" : r.balance_change < 0 ? "change-negative" : "";
+        const sign = r.balance_change > 0 ? "+" : "";
+        const shortId = r.game_round_id.slice(0, 8);
+        tr.innerHTML = `
+          <td>${GAME_NAMES[r.game_type] || r.game_type}</td>
+          <td class="game-id-cell" title="${r.game_round_id}">${shortId}…</td>
+          <td>${r.bet}</td>
+          <td>${r.result_label || "—"}</td>
+          <td class="${changeClass}">${sign}${r.balance_change}</td>
+        `;
+        els.historyTableBody.appendChild(tr);
+      });
+    } catch (err) {
+      els.historyTableBody.innerHTML = `<tr><td colspan="5" class="history-empty">Не удалось загрузить историю</td></tr>`;
+    }
+  }
 
-.case-item-chance {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--text-dim);
-}
+  els.openHistoryBtn.addEventListener("click", () => navigateTo("historyScreen"));
 
-.case-item-gem {
-  width: 24px;
-  height: 24px;
-  margin-top: 6px;
-  transform: rotate(45deg);
-  border-radius: 5px;
-}
+  // ---------- API helper (общий, используется и aviator.js) ----------
 
-.case-item-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.25;
-}
+  async function api(path, { method = "GET", body, auth = false, base = API_BASE } = {}) {
+    const headers = { "Content-Type": "application/json" };
+    if (auth) {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (!token) throw new Error("Нет сессии");
+      headers["Authorization"] = "Bearer " + token;
+    }
+    const res = await fetch(base + path, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.detail || "Ошибка запроса");
+    }
+    return data;
+  }
+  window.AppState.api = api;
 
-.case-item-value {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--green);
-}
+  // ---------- "последние игры" — общая лента, используется и колесом,
+  // и самолётиком (aviator.js), каждый экран запрашивает свой game_type,
+  // поэтому в авиаторе больше не мелькают спины колеса и наоборот. ----------
 
-.case-item.rarity-common .case-item-gem { background: #6b6588; }
-.case-item.rarity-common .case-item-value { color: var(--text-dim); }
+  const GAME_LABELS = { wheel: "Колесо", aviator: "Авиатор", blackjack: "BlackJack", case: "Кейс" };
 
-.case-item.rarity-uncommon { border-color: rgba(51,214,159,0.35); }
-.case-item.rarity-uncommon .case-item-gem { background: var(--green); }
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
 
-.case-item.rarity-rare { border-color: rgba(123,97,255,0.4); }
-.case-item.rarity-rare .case-item-gem { background: var(--violet); }
+  function formatGameTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString("ru-RU", {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+    });
+  }
 
-.case-item.rarity-epic { border-color: rgba(255,92,119,0.4); }
-.case-item.rarity-epic .case-item-gem { background: var(--red); }
+  function renderRecentGames(listEl, games) {
+    listEl.innerHTML = "";
+    if (!games || games.length === 0) {
+      const li = document.createElement("li");
+      li.className = "history-empty";
+      li.textContent = "Игр пока не было.";
+      listEl.appendChild(li);
+      return;
+    }
+    for (const g of games) {
+      const li = document.createElement("li");
+      li.className = "recent-game-row";
+      const changeClass = g.balance_change > 0 ? "change-positive"
+        : g.balance_change < 0 ? "change-negative"
+        : "change-neutral";
+      const changeText = g.balance_change > 0 ? `+${g.balance_change}` : `${g.balance_change}`;
+      const gameLabel = GAME_LABELS[g.game_type] || g.game_type;
+      li.innerHTML = `
+        <div class="rg-top">
+          <span class="rg-name">${escapeHtml(g.username)}</span>
+          <span class="rg-time">${formatGameTime(g.created_at)}</span>
+        </div>
+        <div class="rg-bottom">
+          <span class="rg-bet">${escapeHtml(gameLabel)} · ставка ${g.bet}</span>
+          <span class="rg-result ${changeClass}">${changeText} (${escapeHtml(g.result_label)})</span>
+        </div>
+      `;
+      listEl.appendChild(li);
+    }
+  }
 
-.case-item.rarity-legendary { border-color: rgba(255,200,87,0.45); }
-.case-item.rarity-legendary .case-item-gem { background: var(--gold); }
+  // gameType: "wheel" | "aviator" — каждый экран передаёт свой, чтобы
+  // ленты не смешивались.
+  async function fetchRecentGames(listEl, gameType) {
+    try {
+      const data = await api(`/api/games/recent?game_type=${encodeURIComponent(gameType)}`, { auth: true });
+      renderRecentGames(listEl, data.games);
+    } catch (_) {
+      // тихо — вспомогательный блок, не должен ломать саму игру
+    }
+  }
 
-.case-item.rarity-mythic {
-  border-color: rgba(255,200,87,0.6);
-  background: linear-gradient(180deg, rgba(255,200,87,0.10), rgba(255,92,119,0.08));
-}
-.case-item.rarity-mythic .case-item-gem { background: linear-gradient(135deg, var(--gold), var(--red)); }
-.case-item.rarity-mythic .case-item-value { color: var(--gold); }
+  window.AppState.fetchRecentGames = fetchRecentGames;
+  window.AppState.navigateTo = navigateTo;
 
-.case-item.is-won {
-  transform: translateY(-4px) scale(1.06);
-  border-color: var(--gold);
-  box-shadow: 0 0 0 2px var(--gold), 0 14px 26px -10px rgba(0,0,0,0.7);
-}
+  // ---------- preloader ----------
+
+  function runPreloaderFill(durationMs) {
+    return new Promise((resolve) => {
+      const start = performance.now();
+      function frame(now) {
+        const t = Math.min(1, (now - start) / durationMs);
+        const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        const topInset = (1 - eased) * 100;
+        els.lettersFill.style.clipPath = `inset(${topInset}% 0 0 0)`;
+        if (t < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          els.lettersWrap.classList.add("is-filled");
+          resolve();
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  }
+
+  function hidePreloader() {
+    els.preloader.classList.add("preloader-out");
+    // Узел не удаляем — тот же самый экран с буквами GP переиспользуется
+    // как короткий лоадер при открытии игр (см. showGameLoader ниже).
+  }
+
+  // ---------- лоадер при открытии игры (переиспользует preloader) ----------
+
+  function showGameLoader() {
+    els.preloader.classList.remove("preloader-out");
+    els.lettersWrap.classList.remove("is-filled");
+    els.lettersFill.style.clipPath = "inset(100% 0 0 0)";
+    return runPreloaderFill(550);
+  }
+
+  function hideGameLoader() {
+    els.preloader.classList.add("preloader-out");
+  }
+
+  // ---------- boot ----------
+  // Заливка идёт ПАРАЛЛЕЛЬНО с проверкой сессии — пока грузится экран,
+  // мы уже успеваем узнать, залогинен ли человек, и к моменту, когда
+  // прелоадер исчезает, сразу открывается либо меню, либо форма входа
+  // (а не форма входа "по умолчанию" с последующим миганием).
+
+  (async function boot() {
+    const fillDone = runPreloaderFill(1400);
+
+    let loggedIn = false;
+    if (localStorage.getItem(TOKEN_KEY)) {
+      try {
+        // Автовход по сохранённой сессии ограничен по времени: если
+        // /api/me по какой-то причине зависнет (например, "холодный
+        // старт" serverless-функции или проблемный preflight-запрос),
+        // мы не должны держать прелоадер на экране бесконечно — через
+        // AUTOLOGIN_TIMEOUT_MS сдаёмся и показываем форму входа.
+        const AUTOLOGIN_TIMEOUT_MS = 8000;
+        await Promise.race([
+          enterApp(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Таймаут автовхода")), AUTOLOGIN_TIMEOUT_MS)
+          ),
+        ]);
+        loggedIn = true;
+      } catch (_) {
+        localStorage.removeItem(TOKEN_KEY);
+      }
+    }
+
+    if (!loggedIn) {
+      els.loginScreen.classList.remove("hidden");
+    }
+
+    await fillDone;
+    hidePreloader();
+  })();
+})();
