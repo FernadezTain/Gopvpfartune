@@ -457,6 +457,7 @@ input, select, textarea {
 
 .game-card-wheel { --card-glow: rgba(255,200,87,0.20); --card-accent: var(--gold); }
 .game-card-aviator { --card-glow: rgba(123,97,255,0.22); --card-accent: var(--violet); }
+.game-card-cases { --card-glow: rgba(255,92,119,0.20); --card-accent: var(--red); }
 .game-card-blackjack { --card-glow: rgba(51,214,159,0.22); --card-accent: var(--green); }
 
 .game-card-arrow {
@@ -547,6 +548,9 @@ input, select, textarea {
 }
 .game-card-aviator .game-card-icon-badge {
   background: linear-gradient(150deg, #b3a4ff, var(--violet) 55%, #4d38c9);
+}
+.game-card-cases .game-card-icon-badge {
+  background: linear-gradient(150deg, #ffb3c0, var(--red) 55%, #b8283f);
 }
 .game-card-blackjack .game-card-icon-badge {
   background: linear-gradient(150deg, #9df0d3, var(--green) 55%, #1f9d73);
@@ -644,6 +648,33 @@ input, select, textarea {
 }
 
 /* ---------- Иконки интерфейса (без эмодзи — только CSS-формы) ---------- */
+
+/* Кейс — коробка с крышкой и центральной "лентой" */
+
+.icon-case {
+  position: relative;
+  width: 28px;
+  height: 24px;
+  border-radius: 5px;
+  background: linear-gradient(160deg, #ffffff, #ffd8de 60%);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.35), inset 0 1px 2px rgba(0,0,0,0.2);
+}
+.icon-case::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 7px;
+  background: rgba(184, 40, 63, 0.55);
+  border-radius: 5px 5px 0 0;
+}
+.icon-case::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 4px;
+  transform: translateX(-50%);
+  background: rgba(184, 40, 63, 0.55);
+}
 
 .icon-logo {
   width: 22px;
@@ -1808,4 +1839,172 @@ input, select, textarea {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ---------- Экран "Кейсы" ---------- */
+
+.cases-screen {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.case-hero {
+  text-align: center;
+  padding: 28px 20px 24px;
+  border-radius: 20px;
+  border: 1px solid var(--panel-line);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255,92,119,0.16), transparent 60%),
+    linear-gradient(155deg, #262143 0%, var(--panel) 55%, #1c1930 100%);
+  box-shadow: 0 14px 28px -18px rgba(0,0,0,0.7);
+}
+
+.case-hero-icon-badge {
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 14px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(150deg, #ffb3c0, var(--red) 55%, #b8283f);
+  box-shadow: 0 14px 26px -8px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+
+.icon-case-lg {
+  position: relative;
+  width: 40px;
+  height: 34px;
+  border-radius: 7px;
+  background: linear-gradient(160deg, #ffffff, #ffd8de 60%);
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.35), inset 0 1px 2px rgba(0,0,0,0.2);
+}
+.icon-case-lg::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 10px;
+  background: rgba(184, 40, 63, 0.55);
+  border-radius: 7px 7px 0 0;
+}
+.icon-case-lg::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 5px;
+  transform: translateX(-50%);
+  background: rgba(184, 40, 63, 0.55);
+}
+
+.case-hero-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 19px;
+  margin: 0 0 4px;
+}
+
+.case-hero-sub {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0 0 20px;
+}
+
+.case-open-btn {
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+.case-hero .result-badge { margin-top: 14px; }
+
+.case-content-panel { padding-top: 4px; }
+
+.case-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+
+@media (min-width: 480px) {
+  .case-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (min-width: 720px) {
+  .case-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+.case-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--panel-line);
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.12));
+  text-align: center;
+  transition: transform 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
+}
+
+.case-item-chance {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.case-item-gem {
+  width: 24px;
+  height: 24px;
+  margin-top: 6px;
+  transform: rotate(45deg);
+  border-radius: 5px;
+}
+
+.case-item-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.case-item-value {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--green);
+}
+
+.case-item.rarity-common .case-item-gem { background: #6b6588; }
+.case-item.rarity-common .case-item-value { color: var(--text-dim); }
+
+.case-item.rarity-uncommon { border-color: rgba(51,214,159,0.35); }
+.case-item.rarity-uncommon .case-item-gem { background: var(--green); }
+
+.case-item.rarity-rare { border-color: rgba(123,97,255,0.4); }
+.case-item.rarity-rare .case-item-gem { background: var(--violet); }
+
+.case-item.rarity-epic { border-color: rgba(255,92,119,0.4); }
+.case-item.rarity-epic .case-item-gem { background: var(--red); }
+
+.case-item.rarity-legendary { border-color: rgba(255,200,87,0.45); }
+.case-item.rarity-legendary .case-item-gem { background: var(--gold); }
+
+.case-item.rarity-mythic {
+  border-color: rgba(255,200,87,0.6);
+  background: linear-gradient(180deg, rgba(255,200,87,0.10), rgba(255,92,119,0.08));
+}
+.case-item.rarity-mythic .case-item-gem { background: linear-gradient(135deg, var(--gold), var(--red)); }
+.case-item.rarity-mythic .case-item-value { color: var(--gold); }
+
+.case-item.is-won {
+  transform: translateY(-4px) scale(1.06);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px var(--gold), 0 14px 26px -10px rgba(0,0,0,0.7);
 }
