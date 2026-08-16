@@ -15,7 +15,7 @@
     "x5": "#ff9f1c",
   };
 
-  const GAME_NAMES = { wheel: "Колесо Фортуны", aviator: "Авиатор", blackjack: "Блэкджек" };
+  const GAME_NAMES = { wheel: "Колесо Фортуны", aviator: "Авиатор", blackjack: "Блэкджек", case: "Кейсы"};
 
   const els = {
     preloader: document.getElementById("preloader"),
@@ -84,7 +84,7 @@
 
   // ---------- роутер экранов ----------
 
-  const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
+const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
   const screenStack = ["mainMenuScreen"];
   let lastTopLevelScreen = "mainMenuScreen";
 
@@ -112,7 +112,7 @@
     // подготовиться экран (canvas самолётика меряет себя, тянутся
     // актуальные данные раунда), и переключение выглядит как осознанная
     // загрузка, а не мгновенный, но "дёрганый" щелчок между экранами.
-    const isGameScreen = screenId === "wheelScreen" || screenId === "aviatorScreen" || screenId === "blackjackScreen";
+    const isGameScreen = screenId === "wheelScreen" || screenId === "aviatorScreen" || screenId === "blackjackScreen" || screenId === "casesScreen";
     let fillDone = null;
     if (isGameScreen) {
       fillDone = showGameLoader();
@@ -128,7 +128,7 @@
 
     // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
     // история) — кнопка "назад" видна в самих играх (колесо, самолётик, блэкджек).
-    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen"].includes(screenId);
+    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "casesScreen", "historyScreen"].includes(screenId);
     els.bottomNav.classList.toggle("hidden", isSubScreen);
     els.backBtn.classList.toggle("hidden", !isSubScreen);
 
@@ -156,6 +156,9 @@
     }
     if (screenId === "blackjackScreen" && window.BlackjackGame) {
       dataReady = window.BlackjackGame.onEnter();
+    }
+    if (screenId === "casesScreen" && window.CasesGame) {
+      dataReady = window.CasesGame.onEnter();
     }
     if (screenId === "historyScreen") {
       loadGamesHistory();
@@ -483,7 +486,7 @@
   // и самолётиком (aviator.js), каждый экран запрашивает свой game_type,
   // поэтому в авиаторе больше не мелькают спины колеса и наоборот. ----------
 
-  const GAME_LABELS = { wheel: "Колесо", aviator: "Авиатор", blackjack: "Блэкджек" };
+  const GAME_LABELS = { wheel: "Колесо", aviator: "Авиатор", blackjack: "BlackJack", case: "Кейс" };
 
   function escapeHtml(s) {
     return String(s ?? "").replace(/[&<>"']/g, (c) => ({
