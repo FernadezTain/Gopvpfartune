@@ -457,7 +457,6 @@ input, select, textarea {
 
 .game-card-wheel { --card-glow: rgba(255,200,87,0.20); --card-accent: var(--gold); }
 .game-card-aviator { --card-glow: rgba(123,97,255,0.22); --card-accent: var(--violet); }
-.game-card-cases { --card-glow: rgba(255,92,119,0.20); --card-accent: var(--red); }
 .game-card-blackjack { --card-glow: rgba(51,214,159,0.22); --card-accent: var(--green); }
 
 .game-card-arrow {
@@ -549,9 +548,7 @@ input, select, textarea {
 .game-card-aviator .game-card-icon-badge {
   background: linear-gradient(150deg, #b3a4ff, var(--violet) 55%, #4d38c9);
 }
-.game-card-cases .game-card-icon-badge {
-  background: linear-gradient(150deg, #ffb3c0, var(--red) 55%, #b8283f);
-}
+
 .game-card-blackjack .game-card-icon-badge {
   background: linear-gradient(150deg, #9df0d3, var(--green) 55%, #1f9d73);
 }
@@ -760,6 +757,27 @@ input, select, textarea {
   height: 8px;
   border-radius: 8px 8px 0 0;
   background: currentColor;
+}
+
+.icon-case-nav {
+  position: relative;
+  display: inline-block;
+  width: 17px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  margin-top: 4px;
+}
+.icon-case-nav::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: -6px;
+  height: 5px;
+  border: 2px solid currentColor;
+  border-bottom: none;
+  border-radius: 3px 3px 0 0;
 }
 
 .icon-user-lg { width: 30px; height: 30px; }
