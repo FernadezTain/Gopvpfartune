@@ -402,6 +402,7 @@ def roll_case_item() -> tuple[int, dict]:
             return idx, item
     return len(CASE_ITEMS) - 1, CASE_ITEMS[-1]
 
+
 @app.post("/api/spin")
 async def spin(body: SpinBody, token: str = Depends(bearer_token)):
     bet = body.bet
