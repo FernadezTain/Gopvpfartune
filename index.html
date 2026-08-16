@@ -93,6 +93,12 @@
       <span class="game-card-name">Авиатор</span>
       <span class="game-card-sub">Успей забрать до краша</span>
     </button>
+    <button class="game-card game-card-cases" data-target="casesScreen">
+      <span class="game-card-arrow" aria-hidden="true"></span>
+      <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-case"></span></span>
+      <span class="game-card-name">Кейсы</span>
+      <span class="game-card-sub">Открывай и получай шансы</span>
+    </button>
     <button class="game-card game-card-blackjack" data-target="blackjackScreen">
       <span class="game-card-arrow" aria-hidden="true"></span>
       <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-cards"></span></span>
@@ -257,6 +263,35 @@
   </div>
 </main>
 
+<!-- ЭКРАН КЕЙСОВ -->
+<main id="casesScreen" class="cases-screen hidden">
+  <div class="case-hero">
+    <div class="case-hero-icon-badge"><span class="icon-case-lg" aria-hidden="true"></span></div>
+    <p class="case-hero-name">Стартовый кейс</p>
+    <p class="case-hero-sub">Испытай удачу и получи шансы</p>
+
+    <button id="caseOpenBtn" class="btn btn-spin case-open-btn">
+      <span class="btn-spin-text">Открыть кейс</span>
+      <span class="btn-spin-cost" id="caseOpenCost">−30 шансов</span>
+    </button>
+
+    <p id="caseError" class="spin-error hidden"></p>
+    <div id="caseResultBadge" class="result-badge hidden"></div>
+  </div>
+
+  <section class="legend case-content-panel">
+    <p class="legend-title">Содержимое кейса</p>
+    <div id="caseItemsGrid" class="case-grid"></div>
+  </section>
+
+  <section class="legend">
+    <p class="legend-title">Последние игры</p>
+    <ul id="caseRecentGamesList" class="recent-games-list">
+      <li class="history-empty">Загрузка…</li>
+    </ul>
+  </section>
+</main>
+
 <!-- ПРОФИЛЬ -->
 <main id="profileScreen" class="profile-screen hidden">
   <div class="profile-card">
@@ -310,6 +345,7 @@
 <script src="config.js"></script>
 <script src="app.js?v=2"></script>
 <script src="aviator.js?v=2"></script>
+<script src="cases.js?v=1"></script>
 <script src="blackjack.js?v=1"></script>
 </body>
 </html>
