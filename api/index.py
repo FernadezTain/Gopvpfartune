@@ -77,7 +77,7 @@ assert sum(s["weight"] for s in WHEEL_SECTIONS) == 1000
 
 # ---------- содержимое кейса ----------
 # label, value (шансы, зачисляются игроку), вес (промилле, сумма = 1000), rarity — только для цвета карточки на фронте
-CASE_COST = 30
+CASE_COST = 200
 CASE_ITEMS = [
     {"label": "Пусто",      "value": 0,   "kind": "empty", "weight": 350, "rarity": "common"},
     {"label": "10 шансов",  "value": 10,  "kind": "cash",  "weight": 250, "rarity": "common"},
