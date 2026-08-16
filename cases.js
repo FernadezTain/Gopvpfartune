@@ -17,6 +17,10 @@
     resultBadge: document.getElementById("caseResultBadge"),
     itemsGrid: document.getElementById("caseItemsGrid"),
     recentGamesList: document.getElementById("caseRecentGamesList"),
+
+    reel: document.getElementById("caseReel"),
+    reelViewport: document.querySelector("#caseReel .case-reel-viewport"),
+    reelTrack: document.getElementById("caseReelTrack"),
   };
 
   const RARITY_CLASS = {
@@ -98,6 +102,8 @@
   async function openDetailScreen() {
     hideError();
     els.resultBadge.classList.add("hidden");
+    els.reel.classList.add("hidden");
+    els.reelTrack.innerHTML = "";
     els.itemsGrid.innerHTML = `<p class="history-empty">Загрузка…</p>`;
 
     await AppState.navigateTo("caseDetailScreen");
@@ -118,6 +124,88 @@
   if (els.listCardBtn) {
     els.listCardBtn.addEventListener("click", () => {
       openDetailScreen();
+    });
+  }
+
+  // ---------- лента прокрутки ----------
+
+  const REEL_ITEM_WIDTH = 88;
+  const REEL_ITEM_GAP = 8;
+  const REEL_STEP = REEL_ITEM_WIDTH + REEL_ITEM_GAP;
+  const REEL_LANDING_INDEX = 34;   // на этой позиции в ленте останавливается выигрыш
+  const REEL_TRAILING_ITEMS = 6;   // сколько карточек видно "после" выигрыша
+  const REEL_SPIN_MS = 4200;
+
+  function pickWeightedRandom(items) {
+    const totalWeight = items.reduce((s, i) => s + (i.weight || 1), 0);
+    let roll = Math.random() * totalWeight;
+    for (const item of items) {
+      roll -= item.weight || 1;
+      if (roll <= 0) return item;
+    }
+    return items[items.length - 1];
+  }
+
+  function reelItemEl(item) {
+    const div = document.createElement("div");
+    div.className = "case-reel-item " + (RARITY_CLASS[item.rarity] || "rarity-common");
+    div.innerHTML = `
+      <span class="case-item-gem" aria-hidden="true"></span>
+      <span class="case-reel-item-value">${item.value > 0 ? "+" + item.value : "Пусто"}</span>
+    `;
+    return div;
+  }
+
+  // Строит ленту из случайных предметов (только для красоты прокрутки) и
+  // подставляет РЕАЛЬНЫЙ выигранный предмет (уже определённый сервером)
+  // строго на позицию REEL_LANDING_INDEX — анимация лишь показывает
+  // результат, который уже вычислен и сохранён на бэкенде.
+  function buildReel(allItems, landedItem) {
+    const total = REEL_LANDING_INDEX + REEL_TRAILING_ITEMS + 1;
+    els.reelTrack.innerHTML = "";
+    els.reelTrack.style.transition = "none";
+    els.reelTrack.style.transform = "translateX(0)";
+
+    for (let i = 0; i < total; i++) {
+      const item = i === REEL_LANDING_INDEX ? landedItem : pickWeightedRandom(allItems);
+      const el = reelItemEl(item);
+      el.dataset.index = String(i);
+      els.reelTrack.appendChild(el);
+    }
+  }
+
+  function spinReelTo(landedIndex) {
+    return new Promise((resolve) => {
+      const viewportWidth = els.reelViewport.clientWidth;
+      // Небольшой случайный сдвиг внутри карточки — чтобы остановка не
+      // выглядела механически идеальной, но предмет всё равно чётко под указателем.
+      const jitter = (Math.random() - 0.5) * (REEL_ITEM_WIDTH * 0.3);
+      const targetX = -(landedIndex * REEL_STEP + REEL_STEP / 2 - viewportWidth / 2) + jitter;
+
+      // Даём браузеру отрисовать стартовое положение без transition,
+      // и только следующим кадром включаем анимацию — иначе transition
+      // "съест" и исходную установку transform: translateX(0).
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          els.reelTrack.style.transition = `transform ${REEL_SPIN_MS}ms cubic-bezier(0.1, 0.79, 0.15, 1)`;
+          els.reelTrack.style.transform = `translateX(${targetX}px)`;
+        });
+      });
+
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        els.reelTrack.removeEventListener("transitionend", onEnd);
+        resolve();
+      };
+      const onEnd = (e) => {
+        if (e.propertyName === "transform") finish();
+      };
+      els.reelTrack.addEventListener("transitionend", onEnd);
+      // Подстраховка на случай, если transitionend не придёт (например,
+      // вкладка была свёрнута во время анимации).
+      setTimeout(finish, REEL_SPIN_MS + 400);
     });
   }
 
@@ -155,8 +243,26 @@
     els.resultBadge.classList.add("hidden");
     opening = true;
     setBusy(els.openBtn, true, els.openBtn.querySelector(".btn-spin-text"), "Открываем…", "Открыть кейс");
+
     try {
+      // 1) Кейс открывает СЕРВЕР — результат уже определён и записан в
+      //    базу ещё до того, как на экране началась хоть одна анимация.
       const data = await AppState.api("/api/cases/open", { method: "POST", auth: true });
+      const config = await loadCaseConfig();
+      const landedItem = config.items[data.item_index] || {
+        label: data.label, value: data.value, rarity: data.rarity, weight: 1,
+      };
+
+      // 2) Фронт только визуализирует уже готовый результат — крутит
+      //    ленту так, чтобы она гарантированно остановилась именно на
+      //    предмете, который вернул сервер.
+      els.reel.classList.remove("hidden");
+      buildReel(config.items, landedItem);
+      await spinReelTo(REEL_LANDING_INDEX);
+
+      const landedEl = els.reelTrack.querySelector(`[data-index="${REEL_LANDING_INDEX}"]`);
+      if (landedEl) landedEl.classList.add("is-landed");
+
       showResult(data);
     } catch (err) {
       showError(err.message || "Не удалось открыть кейс");
