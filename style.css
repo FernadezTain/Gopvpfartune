@@ -457,6 +457,7 @@ input, select, textarea {
 
 .game-card-wheel { --card-glow: rgba(255,200,87,0.20); --card-accent: var(--gold); }
 .game-card-aviator { --card-glow: rgba(123,97,255,0.22); --card-accent: var(--violet); }
+.game-card-blackjack { --card-glow: rgba(51,214,159,0.22); --card-accent: var(--green); }
 
 .game-card-arrow {
   position: absolute;
@@ -547,6 +548,29 @@ input, select, textarea {
 .game-card-aviator .game-card-icon-badge {
   background: linear-gradient(150deg, #b3a4ff, var(--violet) 55%, #4d38c9);
 }
+.game-card-blackjack .game-card-icon-badge {
+  background: linear-gradient(150deg, #9df0d3, var(--green) 55%, #1f9d73);
+}
+
+/* Блэкджек — две перекрывающиеся игральные карты */
+
+.icon-cards {
+  position: relative;
+  width: 26px;
+  height: 26px;
+}
+.icon-cards::before,
+.icon-cards::after {
+  content: "";
+  position: absolute;
+  width: 17px;
+  height: 24px;
+  border-radius: 4px;
+  background: linear-gradient(160deg, #ffffff, #ddf7ea 70%);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+}
+.icon-cards::before { left: 0; top: 1px; transform: rotate(-12deg); }
+.icon-cards::after { right: 0; bottom: 1px; transform: rotate(10deg); background: linear-gradient(160deg, #1f9d73, #0e6b4d 70%); }
 
 /* Колесо фортуны — сегменты через conic-gradient + стрелка-указатель */
 
@@ -1221,6 +1245,80 @@ input, select, textarea {
   border-radius: 50%;
   background: var(--text-dim);
   box-shadow: 0 0 0 0 rgba(255,255,255,0);
+}
+
+/* ---------- Блэкджек ---------- */
+
+.bj-stage {
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  gap: 14px;
+}
+
+.bj-hand {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.bj-hand-label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+.bj-hand-total { color: var(--text); font-weight: 700; }
+
+.bj-cards {
+  display: flex;
+  gap: 8px;
+  min-height: 76px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.bj-card {
+  width: 52px;
+  height: 72px;
+  border-radius: 8px;
+  background: linear-gradient(160deg, #ffffff, #eae7fb 70%);
+  box-shadow: 0 6px 14px -6px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  color: #241f38;
+  animation: bj-deal 0.25s ease-out;
+}
+.bj-card.is-red { color: var(--red); }
+.bj-card-back {
+  background: repeating-linear-gradient(135deg, var(--violet), var(--violet) 6px, #4d38c9 6px, #4d38c9 12px);
+  border: 2px solid rgba(255,255,255,0.25);
+}
+
+@keyframes bj-deal {
+  from { transform: translateY(-14px) scale(0.9); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.bj-actions {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+}
+.bj-actions .btn-ghost {
+  flex: 1;
+  padding: 13px 10px;
+  font-size: 14px;
 }
 
 .aviator-screen.is-flying .aviator-status::before {
