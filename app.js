@@ -84,7 +84,7 @@
 
   // ---------- роутер экранов ----------
 
-const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
+const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; // тут виден нижний навбар, скрыта кнопка "назад"
   const screenStack = ["mainMenuScreen"];
   let lastTopLevelScreen = "mainMenuScreen";
 
@@ -112,7 +112,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут вид�
     // подготовиться экран (canvas самолётика меряет себя, тянутся
     // актуальные данные раунда), и переключение выглядит как осознанная
     // загрузка, а не мгновенный, но "дёрганый" щелчок между экранами.
-    const isGameScreen = screenId === "wheelScreen" || screenId === "aviatorScreen" || screenId === "blackjackScreen" || screenId === "casesScreen";
+    const isGameScreen = screenId === "wheelScreen" || screenId === "aviatorScreen" || screenId === "blackjackScreen";
     let fillDone = null;
     if (isGameScreen) {
       fillDone = showGameLoader();
@@ -128,7 +128,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "profileScreen"]; // тут вид�
 
     // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
     // история) — кнопка "назад" видна в самих играх (колесо, самолётик, блэкджек).
-    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "casesScreen", "historyScreen"].includes(screenId);
+    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen"].includes(screenId);
     els.bottomNav.classList.toggle("hidden", isSubScreen);
     els.backBtn.classList.toggle("hidden", !isSubScreen);
 
