@@ -6,19 +6,27 @@
   // статичная разметка из index.html без какой-либо логики). Здесь —
   // настоящая реализация:
   //
-  //   1. Пользователь жмёт "Открыть кейс".
-  //   2. Сервер (POST /api/cases/open) сам решает выигрыш — вес секций
-  //      известен только бэкенду — и отдаёт на фронт item_index + label.
-  //   3. Фронт строит длинную ленту предметов (случайные для "мусора" +
+  //   1. Пользователь жмёт на карточку кейса в списке → открывается
+  //      экран открытия ИМЕННО ЭТОГО кейса (id берётся из data-case
+  //      карточки, дальше передаётся на сервер во всех запросах).
+  //   2. Пользователь жмёт "Открыть кейс".
+  //   3. Сервер (POST /api/cases/{case_id}/open) сам решает выигрыш — вес
+  //      секций известен только бэкенду — и отдаёт на фронт item_index +
+  //      label.
+  //   4. Фронт строит длинную ленту предметов (случайные для "мусора" +
   //      ОБЯЗАТЕЛЬНО серверный предмет на фиксированной позиции) и
   //      анимирует прокрутку СПРАВА НАЛЕВО, которая тормозит и
   //      останавливается ровно на предмете с сервера под указателем.
   //
   // Фронт никогда сам не решает, что выпало — только красиво
   // визуализирует уже принятое сервером решение.
+  //
+  // Список и содержимое кейсов (название, цена, награды) полностью
+  // настраиваются на сервере в api_server.py — словарь CASES. Фронт
+  // никаких кейсов не хардкодит, только рисует то, что вернул сервер.
 
   const els = {
-    caseListPrice: document.getElementById("caseListPrice"),
+    caseGrid: document.getElementById("caseGrid"),
 
     caseDetailScreen: document.getElementById("caseDetailScreen"),
     caseHeroIcon: document.getElementById("caseHeroIcon"),
@@ -48,65 +56,81 @@
   const LANDING_POS = 48; // на какой по счёту карточке должна остановиться лента
   const SPIN_MS = 5200; // должно совпадать с transition-duration ниже
 
-  let caseData = null; // { cost, items: [{label, value, weight, rarity}] }
+  let currentCaseId = null; // id кейса, открытого на экране деталей сейчас
+  const caseDataCache = {}; // caseId -> { id, name, cost, items }
   let opening = false;
-
-  function getEl(id) {
-    return document.getElementById(id);
-  }
-
-  async function loadCaseData(force) {
-    if (caseData && !force) return caseData;
-    caseData = await window.AppState.api("/api/cases", { auth: true });
-    return caseData;
-  }
 
   // ---------- список кейсов ----------
 
+  // Иконки кейсов на фронте — единственное, что задаётся в HTML (у файлов
+  // картинок нет смысла лежать на сервере в API-ответе), поэтому просто
+  // сопоставляем id кейса с путём к картинке. Добавляя новый кейс на
+  // сервере (в CASES), сюда тоже нужно добавить его иконку.
+  const CASE_ICONS = {
+    gopvp_green: "case_icon/Gopvp_greencase.png",
+    gopvp_beggar: "case_icon/Gopvp_beggarcase.png",
+  };
+
   async function onEnter() {
+    if (!els.caseGrid) return;
     try {
-      const data = await loadCaseData();
-      if (els.caseListPrice) els.caseListPrice.textContent = data.cost;
-    } catch (_) {
-      // список кейсов не критичен — если не подгрузилось, просто останется
-      // дефолтная цена из разметки
+      const data = await window.AppState.api("/api/cases", { auth: true });
+      renderCaseGrid(data.cases || []);
+    } catch (err) {
+      els.caseGrid.innerHTML = `<p class="history-empty">${escapeHtml(err.message)}</p>`;
     }
   }
 
-  // На случай будущих доп. кейсов вешаем обработчик на все .case-card, а
-  // не только на текущий единственный — имя и картинка на экране открытия
-  // всегда берутся из той карточки, по которой кликнули, а не хардкодятся.
-  document.querySelectorAll(".case-card").forEach((btn) => {
-    btn.addEventListener("click", () => openCaseDetailScreen(btn));
-  });
+  function renderCaseGrid(cases) {
+    els.caseGrid.innerHTML = "";
+    cases.forEach((c) => {
+      const btn = document.createElement("button");
+      btn.className = "case-card";
+      btn.dataset.case = c.id;
+      const icon = CASE_ICONS[c.id] || "case_icon/Gopvp_greencase.png";
+      btn.innerHTML = `
+        <img class="case-card-img" src="${escapeHtml(icon)}" alt="${escapeHtml(c.name)}" />
+        <span class="case-card-price"><span class="icon-chance-coin" aria-hidden="true"></span><span class="case-card-price-val">${c.cost}</span></span>
+        <span class="case-card-name">${escapeHtml(c.name)}</span>
+      `;
+      btn.addEventListener("click", () => openCaseDetailScreen(btn, c));
+      els.caseGrid.appendChild(btn);
+    });
+  }
 
-  async function openCaseDetailScreen(cardBtn) {
+  async function openCaseDetailScreen(cardBtn, caseMeta) {
     window.AppState.navigateTo("caseDetailScreen");
 
     resetDetailScreen();
 
+    currentCaseId = cardBtn.dataset.case;
+
     // Название и иконка кейса — из карточки, по которой кликнули (единый
     // источник данных с экраном списка кейсов), а не отдельный хардкод.
-    if (cardBtn) {
-      const cardImg = cardBtn.querySelector(".case-card-img");
-      const cardName = cardBtn.querySelector(".case-card-name");
-      if (els.caseHeroIcon && cardImg) {
-        els.caseHeroIcon.src = cardImg.src;
-        els.caseHeroIcon.alt = cardImg.alt || "";
-      }
-      if (els.caseHeroName && cardName) {
-        els.caseHeroName.textContent = cardName.textContent;
-      }
+    const cardImg = cardBtn.querySelector(".case-card-img");
+    if (els.caseHeroIcon && cardImg) {
+      els.caseHeroIcon.src = cardImg.src;
+      els.caseHeroIcon.alt = cardImg.alt || "";
+    }
+    if (els.caseHeroName) {
+      els.caseHeroName.textContent = caseMeta ? caseMeta.name : (cardBtn.querySelector(".case-card-name")?.textContent || "");
     }
 
     try {
-      const data = await loadCaseData();
+      const data = await loadCaseData(currentCaseId);
       if (els.caseOpenCost) els.caseOpenCost.textContent = `−${data.cost} шансов`;
       renderItemsGrid(data.items);
       window.AppState.fetchRecentGames(els.caseRecentGamesList, "case");
     } catch (err) {
       showCaseError(err.message);
     }
+  }
+
+  async function loadCaseData(caseId, force) {
+    if (caseDataCache[caseId] && !force) return caseDataCache[caseId];
+    const data = await window.AppState.api(`/api/cases/${encodeURIComponent(caseId)}`, { auth: true });
+    caseDataCache[caseId] = data;
+    return data;
   }
 
   function resetDetailScreen() {
@@ -234,6 +258,7 @@
 
   async function handleOpenCase() {
     if (opening) return;
+    if (!currentCaseId) return;
     opening = true;
     els.caseOpenBtn.disabled = true;
     hideCaseError();
@@ -245,8 +270,8 @@
     try {
       // Шаг 1: сервер уже сейчас решил, что выпадет, и списал/начислил баланс.
       const [result, data] = await Promise.all([
-        window.AppState.api("/api/cases/open", { method: "POST", auth: true }),
-        loadCaseData(),
+        window.AppState.api(`/api/cases/${encodeURIComponent(currentCaseId)}/open`, { method: "POST", auth: true }),
+        loadCaseData(currentCaseId),
       ]);
 
       // Шаг 2: фронт просто визуализирует уже принятое решение сервера.
