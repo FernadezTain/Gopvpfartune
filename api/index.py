@@ -75,20 +75,53 @@ WHEEL_SECTIONS = [
 ]
 assert sum(s["weight"] for s in WHEEL_SECTIONS) == 1000
 
-# ---------- содержимое кейса ----------
-# label, value (шансы, зачисляются игроку), вес (промилле, сумма = 1000), rarity — только для цвета карточки на фронте
-CASE_COST = 200
-CASE_ITEMS = [
-    {"label": "Пусто",      "value": 0,   "kind": "empty", "weight": 350, "rarity": "common"},
-    {"label": "10 шансов",  "value": 10,  "kind": "cash",  "weight": 250, "rarity": "common"},
-    {"label": "20 шансов",  "value": 20,  "kind": "cash",  "weight": 180, "rarity": "uncommon"},
-    {"label": "35 шансов",  "value": 35,  "kind": "cash",  "weight": 120, "rarity": "rare"},
-    {"label": "60 шансов",  "value": 60,  "kind": "cash",  "weight": 60,  "rarity": "epic"},
-    {"label": "100 шансов", "value": 100, "kind": "cash",  "weight": 30,  "rarity": "legendary"},
-    {"label": "250 шансов", "value": 250, "kind": "cash",  "weight": 9,   "rarity": "mythic"},
-    {"label": "500 шансов", "value": 500, "kind": "cash",  "weight": 1,   "rarity": "mythic"},
-]
-assert sum(i["weight"] for i in CASE_ITEMS) == 1000
+# ---------- содержимое кейсов ----------
+# Несколько кейсов, каждый со своим id, названием, ценой и своим набором
+# наград. id — то, что фронт передаёт в query-параметре ?case_id=...
+# (см. index.html: data-case="..." на карточке кейса).
+#
+# У каждой награды: label, value (шансы, зачисляются игроку), вес
+# (промилле, сумма весов внутри ОДНОГО кейса должна быть = 1000),
+# rarity — только для цвета карточки на фронте.
+CASES = {
+    "gopvp_green": {
+        "name": "Green Case",
+        "cost": 200,
+        "items": [
+            {"label": "Пусто",      "value": 0,   "kind": "empty", "weight": 350, "rarity": "common"},
+            {"label": "10 шансов",  "value": 10,  "kind": "cash",  "weight": 250, "rarity": "common"},
+            {"label": "20 шансов",  "value": 20,  "kind": "cash",  "weight": 180, "rarity": "uncommon"},
+            {"label": "35 шансов",  "value": 35,  "kind": "cash",  "weight": 120, "rarity": "rare"},
+            {"label": "60 шансов",  "value": 60,  "kind": "cash",  "weight": 60,  "rarity": "epic"},
+            {"label": "100 шансов", "value": 100, "kind": "cash",  "weight": 30,  "rarity": "legendary"},
+            {"label": "250 шансов", "value": 250, "kind": "cash",  "weight": 9,   "rarity": "mythic"},
+            {"label": "500 шансов", "value": 500, "kind": "cash",  "weight": 1,   "rarity": "mythic"},
+        ],
+    },
+    "gopvp_beggar": {
+        "name": "Beggar Case",
+        "cost": 150,
+        "items": [
+            {"label": "Пусто",     "value": 0,   "kind": "empty", "weight": 500, "rarity": "common"},
+            {"label": "5 шансов",  "value": 5,   "kind": "cash",  "weight": 260, "rarity": "common"},
+            {"label": "10 шансов", "value": 10,  "kind": "cash",  "weight": 140, "rarity": "uncommon"},
+            {"label": "20 шансов", "value": 20,  "kind": "cash",  "weight": 70,  "rarity": "rare"},
+            {"label": "40 шансов", "value": 40,  "kind": "cash",  "weight": 24,  "rarity": "epic"},
+            {"label": "80 шансов", "value": 80,  "kind": "cash",  "weight": 5,   "rarity": "legendary"},
+            {"label": "150 шансов","value": 150, "kind": "cash",  "weight": 1,   "rarity": "mythic"},
+        ],
+    },
+}
+for _cid, _c in CASES.items():
+    _s = sum(i["weight"] for i in _c["items"])
+    assert _s == 1000, f"Веса наград кейса '{_cid}' должны суммироваться в 1000, сейчас {_s}"
+
+
+def get_case_or_404(case_id: str) -> dict:
+    case = CASES.get(case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Кейс не найден")
+    return case
 
 bot = Bot(token=BOT_TOKEN)
 
@@ -393,14 +426,15 @@ def roll_section() -> tuple[int, dict]:
     return len(WHEEL_SECTIONS) - 1, WHEEL_SECTIONS[-1]
 
 
-def roll_case_item() -> tuple[int, dict]:
+def roll_case_item(case: dict) -> tuple[int, dict]:
+    items = case["items"]
     roll = random.randint(1, 1000)
     acc = 0
-    for idx, item in enumerate(CASE_ITEMS):
+    for idx, item in enumerate(items):
         acc += item["weight"]
         if roll <= acc:
             return idx, item
-    return len(CASE_ITEMS) - 1, CASE_ITEMS[-1]
+    return len(items) - 1, items[-1]
 
 
 @app.post("/api/spin")
@@ -471,22 +505,41 @@ async def spin(body: SpinBody, token: str = Depends(bearer_token)):
 
 
 @app.get("/api/cases")
-async def get_cases(token: str = Depends(bearer_token)):
+async def list_cases(token: str = Depends(bearer_token)):
+    """Список всех доступных кейсов (для экрана списка кейсов)."""
     with db() as conn:
         require_session(conn, token)
     return {
-        "cost": CASE_COST,
+        "cases": [
+            {"id": cid, "name": c["name"], "cost": c["cost"]}
+            for cid, c in CASES.items()
+        ]
+    }
+
+
+@app.get("/api/cases/{case_id}")
+async def get_case(case_id: str, token: str = Depends(bearer_token)):
+    """Содержимое (таблица шансов) конкретного кейса."""
+    with db() as conn:
+        require_session(conn, token)
+    case = get_case_or_404(case_id)
+    return {
+        "id": case_id,
+        "name": case["name"],
+        "cost": case["cost"],
         "items": [
             {"label": i["label"], "value": i["value"], "weight": i["weight"], "rarity": i["rarity"]}
-            for i in CASE_ITEMS
+            for i in case["items"]
         ],
     }
 
 
-@app.post("/api/cases/open")
-async def open_case(token: str = Depends(bearer_token)):
-    index, item = roll_case_item()
-    net = item["value"] - CASE_COST
+@app.post("/api/cases/{case_id}/open")
+async def open_case(case_id: str, token: str = Depends(bearer_token)):
+    case = get_case_or_404(case_id)
+    cost = case["cost"]
+    index, item = roll_case_item(case)
+    net = item["value"] - cost
 
     with db() as conn:
         user = require_session(conn, token)
@@ -496,7 +549,7 @@ async def open_case(token: str = Depends(bearer_token)):
         cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
         balance = row[0] if row else 0
-        if balance < CASE_COST:
+        if balance < cost:
             cur.close()
             raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
 
@@ -512,16 +565,17 @@ async def open_case(token: str = Depends(bearer_token)):
             INSERT INTO game_rounds
                 (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
             VALUES (%s, 'case', %s, %s, %s, %s, %s)
-        """, (user_id, CASE_COST, item["label"], item["value"], net, new_balance))
+        """, (user_id, cost, f"[{case['name']}] {item['label']}", item["value"], net, new_balance))
         cur.close()
 
     return {
         "ok": True,
+        "case_id": case_id,
         "item_index": index,
         "label": item["label"],
         "value": item["value"],
         "rarity": item["rarity"],
-        "cost": CASE_COST,
+        "cost": cost,
         "new_balance": new_balance,
     }
 
