@@ -65,16 +65,12 @@
 </main>
 
 <!-- ЭКРАН КЕЙСОВ -->
+<!-- Карточки кейсов рендерятся динамически в cases.js на основе ответа
+     сервера GET /api/cases (список всех кейсов из словаря CASES в
+     api_server.py) — здесь только пустой контейнер. -->
 <main id="casesScreen" class="cases-screen hidden">
   <p class="menu-title">Кейсы</p>
-  <div class="case-grid" id="caseGrid">
-    <button class="case-card" id="caseCardBtn" data-case="gopvp_green">
-      <span class="case-card-badge">Новое</span>
-      <img class="case-card-img" src="case_icon/Gopvp_greencase.png" alt="Gopvp Green Case" />
-      <span class="case-card-price"><span class="icon-chance-coin" aria-hidden="true"></span><span id="caseListPrice">30</span></span>
-      <span class="case-card-name">Стартовый кейс</span>
-    </button>
-  </div>
+  <div class="case-grid" id="caseGrid"></div>
 </main>
 
 <!-- ГЛАВНОЕ МЕНЮ -->
@@ -346,7 +342,7 @@
 <script src="config.js"></script>
 <script src="app.js?v=2"></script>
 <script src="aviator.js?v=2"></script>
-<script src="cases.js?v=2"></script>
+<script src="cases.js?v=3"></script>
 <script src="blackjack.js?v=2"></script>
 </body>
 </html>
