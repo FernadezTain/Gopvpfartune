@@ -2184,6 +2184,15 @@ input, select, textarea {
   font-size: 13.5px;
 }
 
+.cases-loading,
+.cases-error {
+  grid-column: 1 / -1;
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13.5px;
+}
+
 .inv-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
