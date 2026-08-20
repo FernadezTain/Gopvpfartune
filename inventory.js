@@ -12,6 +12,7 @@
   const els = {
     invEmpty: document.getElementById("invEmpty"),
     invGrid: document.getElementById("invGrid"),
+    invReloadBtn: document.getElementById("invReloadBtn"),
 
     manageModal: document.getElementById("invManageModal"),
     manageClose: document.getElementById("invManageClose"),
@@ -118,6 +119,26 @@
       els.invEmpty.classList.remove("hidden");
       els.invEmpty.querySelector("p").textContent = err.message || "Не удалось загрузить инвентарь";
     }
+  }
+
+  // ---------- кнопка "Обновить" рядом с заголовком ----------
+
+  let reloading = false;
+
+  async function handleReloadClick() {
+    if (reloading || busy) return;
+    reloading = true;
+    els.invReloadBtn.classList.add("is-loading");
+    try {
+      await onEnter();
+    } finally {
+      reloading = false;
+      els.invReloadBtn.classList.remove("is-loading");
+    }
+  }
+
+  if (els.invReloadBtn) {
+    els.invReloadBtn.addEventListener("click", handleReloadClick);
   }
 
   async function renderGrid() {
