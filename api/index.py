@@ -66,6 +66,14 @@ ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
 # отвечают 503, ничего не ломая на обычных пользовательских эндпоинтах.
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET")
 
+# Тот же Supabase-проект, что и на фронте (см. config.js) — нужен здесь
+# только для проверки, что avatar_url, который присылает клиент, реально
+# указывает на файл из нашего бакета "useravatars" в Storage, а не на
+# произвольный внешний адрес.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ptpxuujqlarucsexbjgt.supabase.co").rstrip("/")
+AVATAR_BUCKET = "useravatars"
+AVATAR_URL_PREFIX = f"{SUPABASE_URL}/storage/v1/object/public/{AVATAR_BUCKET}/"
+
 CODE_TTL_SECONDS = 5 * 60
 SESSION_TTL_SECONDS = 30 * 24 * 3600  # 30 дней
 CODE_RESEND_COOLDOWN = 30  # сек между повторными кодами
@@ -474,6 +482,23 @@ def ensure_tables():
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_user_inventory_user ON user_inventory (user_id, status)")
 
+        # claim_requested_at — момент нажатия "Получить" (для экрана "Заявки" —
+        # там показывается именно дата отправки заявки, а не дата получения
+        # предмета в инвентарь). Колонка добавляется миграцией, чтобы не
+        # ломать уже существующую таблицу user_inventory.
+        cur.execute("ALTER TABLE user_inventory ADD COLUMN IF NOT EXISTS claim_requested_at TIMESTAMPTZ")
+
+        # user_avatars — привязка "какая аватарка у какого игрока". Сам файл
+        # лежит в Supabase Storage (бакет useravatars, путь <telegram_id>/...),
+        # здесь хранится только его публичная ссылка.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_avatars (
+                user_id BIGINT PRIMARY KEY,
+                avatar_url TEXT,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+
         # case_pool — какие ПРЕДМЕТЫ (не шансы) могут выпасть из кейса.
         # Денежные призы (CASE_ITEMS) остаются захардкожены в коде как и
         # были, а вот выпадение NFT/подарков/Stars из shop_items настраивается
@@ -621,6 +646,10 @@ class AdminGrantBody(BaseModel):
     item_id: int
 
 
+class AvatarUpdateBody(BaseModel):
+    avatar_url: str = Field(min_length=1, max_length=1000)
+
+
 # ---------- авторизация ----------
 
 def require_session(conn, token: str) -> dict:
@@ -733,13 +762,17 @@ async def me(token: str = Depends(bearer_token)):
         cur = conn.cursor()
         cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user["user_id"],))
         row = cur.fetchone()
+        cur.execute("SELECT avatar_url FROM user_avatars WHERE user_id = %s", (user["user_id"],))
+        avatar_row = cur.fetchone()
         cur.close()
     balance = row[0] if row else 0
+    avatar_url = avatar_row[0] if avatar_row else None
 
     return {
         "telegram_id": user["user_id"],
         "username": user["username"],
         "balance": balance,
+        "avatar_url": avatar_url,
         "min_bet": MIN_BET,
         "bet_step": BET_STEP,
         "max_bet": MAX_BET,
@@ -767,6 +800,38 @@ async def history(token: str = Depends(bearer_token)):
 
 
 # ---------- вращение колеса ----------
+
+@app.post("/api/profile/avatar")
+async def update_avatar(body: AvatarUpdateBody, token: str = Depends(bearer_token)):
+    """Сохраняет ссылку на аватарку, которую фронт уже загрузил напрямую в
+    Supabase Storage (бакет useravatars) через supabase-js с anon-ключом.
+    Здесь только фиксируется, у какого игрока какая ссылка — сам файл сюда
+    не попадает."""
+    url = body.avatar_url.strip()
+    if not url.startswith(AVATAR_URL_PREFIX):
+        raise HTTPException(status_code=400, detail="Ссылка должна вести на файл в бакете useravatars")
+
+    with db() as conn:
+        user = require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO user_avatars (user_id, avatar_url, updated_at) VALUES (%s, %s, now())
+            ON CONFLICT (user_id) DO UPDATE SET avatar_url = excluded.avatar_url, updated_at = now()
+        """, (user["user_id"], url))
+        cur.close()
+    return {"ok": True, "avatar_url": url}
+
+
+@app.delete("/api/profile/avatar")
+async def delete_avatar(token: str = Depends(bearer_token)):
+    """Сбрасывает аватарку игрока обратно на дефолтную заглушку."""
+    with db() as conn:
+        user = require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM user_avatars WHERE user_id = %s", (user["user_id"],))
+        cur.close()
+    return {"ok": True}
+
 
 def roll_section() -> tuple[int, dict]:
     roll = random.randint(1, 1000)
@@ -1118,6 +1183,36 @@ INVENTORY_COLUMNS = """
 """
 
 
+def _serialize_claim_row(row) -> dict:
+    (inv_id, item_id, type_, collection, model, background, symbol,
+     icon_png, icon_gif, background_png, price_stars, price_gp,
+     status, created_at, claim_requested_at) = row
+    return {
+        "id": inv_id,
+        "item_id": item_id,
+        "type": type_,
+        "collection": collection,
+        "model": model,
+        "background": background,
+        "symbol": symbol,
+        "icon_png": icon_png,
+        "icon_gif": icon_gif,
+        "background_png": background_png,
+        "price_stars": price_stars,
+        "price_gp": price_gp,
+        "status": status,
+        "acquired_at": created_at,
+        "requested_at": claim_requested_at,
+    }
+
+
+CLAIMS_COLUMNS = """
+    id, item_id, type, collection, model, background, symbol,
+    icon_png, icon_gif, background_png, price_stars, price_gp,
+    status, created_at, claim_requested_at
+"""
+
+
 @app.get("/api/inventory")
 async def get_inventory(token: str = Depends(bearer_token)):
     """Инвентарь текущего игрока — только предметы в статусе 'owned'
@@ -1133,6 +1228,24 @@ async def get_inventory(token: str = Depends(bearer_token)):
         rows = cur.fetchall()
         cur.close()
     return {"items": [_serialize_inventory_row(r) for r in rows]}
+
+
+@app.get("/api/inventory/claims")
+async def get_inventory_claims(token: str = Depends(bearer_token)):
+    """Заявки на получение предметов текущего игрока ("Получить" в модалке
+    инвентаря) — для экрана "Заявки" на фронте: иконка, название, дата
+    отправки заявки и статус (Ожидание / Выдано / Отклонено)."""
+    with db() as conn:
+        user = require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT {CLAIMS_COLUMNS} FROM user_inventory
+            WHERE user_id = %s AND status IN ('claim_requested', 'claimed', 'claim_rejected')
+            ORDER BY claim_requested_at DESC NULLS LAST, id DESC
+        """, (user["user_id"],))
+        rows = cur.fetchall()
+        cur.close()
+    return {"claims": [_serialize_claim_row(r) for r in rows]}
 
 
 @app.post("/api/inventory/{inventory_id}/exchange")
@@ -1245,7 +1358,7 @@ async def claim_inventory_item(inventory_id: int, token: str = Depends(bearer_to
         user = require_session(conn, token)
         cur = conn.cursor()
         cur.execute(f"""
-            UPDATE user_inventory SET status = 'claim_requested'
+            UPDATE user_inventory SET status = 'claim_requested', claim_requested_at = now()
             WHERE id = %s AND user_id = %s AND status = 'owned'
             RETURNING {INVENTORY_COLUMNS}
         """, (inventory_id, user["user_id"]))
