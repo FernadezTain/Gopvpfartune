@@ -382,6 +382,75 @@ input, select, textarea {
   margin: 0 0 20px;
 }
 
+.inv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 20px;
+}
+
+.inv-header .menu-title {
+  margin: 0;
+}
+
+.inv-reload-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 12px;
+  border: 1px solid var(--panel-line);
+  background: var(--bg-soft);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, transform 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.inv-reload-btn:hover {
+  border-color: var(--violet);
+  color: var(--text);
+  background: var(--panel);
+}
+
+.inv-reload-btn:active {
+  transform: scale(0.92);
+}
+
+.inv-reload-btn:focus-visible {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+}
+
+.inv-reload-icon {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.18s ease;
+}
+
+.inv-reload-btn:hover .inv-reload-icon {
+  transform: rotate(45deg);
+}
+
+.inv-reload-btn.is-loading {
+  pointer-events: none;
+  border-color: var(--violet);
+  color: var(--violet);
+}
+
+.inv-reload-btn.is-loading .inv-reload-icon {
+  animation: inv-reload-spin 0.7s linear infinite;
+}
+
+@keyframes inv-reload-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .game-grid {
   display: grid;
   grid-template-columns: 1fr;
