@@ -80,20 +80,130 @@ WHEEL_SECTIONS = [
 ]
 assert sum(s["weight"] for s in WHEEL_SECTIONS) == 1000
 
-# ---------- содержимое кейса ----------
-# label, value (шансы, зачисляются игроку), вес (промилле, сумма = 1000), rarity — только для цвета карточки на фронте
-CASE_COST = 200
-CASE_ITEMS = [
-    {"label": "Пусто",      "value": 0,   "kind": "empty", "weight": 350, "rarity": "common"},
-    {"label": "10 шансов",  "value": 10,  "kind": "cash",  "weight": 250, "rarity": "common"},
-    {"label": "20 шансов",  "value": 20,  "kind": "cash",  "weight": 180, "rarity": "uncommon"},
-    {"label": "35 шансов",  "value": 35,  "kind": "cash",  "weight": 120, "rarity": "rare"},
-    {"label": "60 шансов",  "value": 60,  "kind": "cash",  "weight": 60,  "rarity": "epic"},
-    {"label": "100 шансов", "value": 100, "kind": "cash",  "weight": 30,  "rarity": "legendary"},
-    {"label": "250 шансов", "value": 250, "kind": "cash",  "weight": 9,   "rarity": "mythic"},
-    {"label": "500 шансов", "value": 500, "kind": "cash",  "weight": 1,   "rarity": "mythic"},
+# ---------- содержимое кейсов (сиды по умолчанию) ----------
+#
+# Раньше кейс был один, зашитый прямо в код (CASE_COST/CASE_ITEMS). Теперь
+# кейсов может быть сколько угодно — они лежат в таблицах `cases` (сама
+# карточка кейса: ключ, имя, цена, иконка) и `case_cash_items` (денежные
+# призы ЭТОГО кейса, аналог старого CASE_ITEMS, но с привязкой к case_key).
+# Предметные призы (NFT/подарки/Stars) по-прежнему настраиваются через
+# case_pool -> shop_items — там тоже теперь используется case_key.
+#
+# DEFAULT_CASES — это только НАЧАЛЬНЫЙ сид, вставляется в БД один раз при
+# первом запуске (см. ensure_tables), если таблица `cases` ещё пустая.
+# Дальше все правки (добавить кейс, поменять цену/призы) делаются прямо в
+# Supabase Table Editor — редеплой кода для этого не нужен.
+DEFAULT_CASES = [
+    {
+        "case_key": "gopvp_green",
+        "name": "Стартовый кейс",
+        "cost": 30,
+        "icon": "case_icon/Gopvp_greencase.png",
+        "badge": "Новое",
+        "sort_order": 1,
+        "cash_items": [
+            {"label": "Пусто",   "value": 0,  "weight": 350, "rarity": "common"},
+            {"label": "10 GP",   "value": 10, "weight": 250, "rarity": "common"},
+            {"label": "20 GP",   "value": 20, "weight": 180, "rarity": "uncommon"},
+            {"label": "35 GP",   "value": 35, "weight": 120, "rarity": "rare"},
+            {"label": "60 GP",   "value": 60, "weight": 60,  "rarity": "epic"},
+            {"label": "100 GP",  "value": 100, "weight": 30, "rarity": "legendary"},
+            {"label": "250 GP",  "value": 250, "weight": 9,  "rarity": "mythic"},
+            {"label": "500 GP",  "value": 500, "weight": 1,  "rarity": "mythic"},
+        ],
+    },
+    {
+        "case_key": "gopvp_gold",
+        "name": "Золотой кейс",
+        "cost": 100,
+        "icon": "case_icon/Gopvp_greencase.png",
+        "badge": "Хайп",
+        "sort_order": 2,
+        "cash_items": [
+            {"label": "Пусто",   "value": 0,   "weight": 300, "rarity": "common"},
+            {"label": "50 GP",   "value": 50,  "weight": 250, "rarity": "uncommon"},
+            {"label": "90 GP",   "value": 90,  "weight": 180, "rarity": "rare"},
+            {"label": "150 GP",  "value": 150, "weight": 120, "rarity": "epic"},
+            {"label": "300 GP",  "value": 300, "weight": 90,  "rarity": "legendary"},
+            {"label": "600 GP",  "value": 600, "weight": 45,  "rarity": "mythic"},
+            {"label": "1200 GP", "value": 1200, "weight": 15, "rarity": "mythic"},
+        ],
+    },
 ]
-assert sum(i["weight"] for i in CASE_ITEMS) == 1000
+
+# ---------- каталог предметов (сиды по умолчанию) ----------
+#
+# shop_items — единственный источник правды о том, ЧТО такое каждый
+# предмет. Сайт никогда не хранит и не передаёт "картинку" или "цену"
+# предмета сам по себе — только item_id, а фактические данные (тип,
+# коллекция, модель, фон, символ, иконки, цены) сервер всегда достаёт
+# из этой таблицы и уже готовым объектом отдаёт на фронт. Ровно так же
+# это устроено при выпадении предмета из кейса (build_case_pool делает
+# JOIN case_pool -> shop_items) и при выдаче через /api/admin/inventory/grant
+# (там просто SELECT ... FROM shop_items WHERE id = %s).
+#
+# DEFAULT_SHOP_ITEMS — сид с примерами трёх типов предметов (ваши же
+# примеры: NFT, Gift, Stars), вставляется один раз при первом запуске,
+# если таблица shop_items ещё пустая. Дальше реальные NFT/подарки
+# добавляются просто строками в Supabase Table Editor — сайт подхватит
+# их автоматически, без единой правки кода.
+#
+# icon_png/icon_gif — если одно из полей пустое, применяется другое
+# (см. правило в pickIconFor* на фронте). Ниже стоят ЗАГЛУШКИ-ссылки —
+# их нужно заменить на реальные URL картинок (например, ссылки на файлы,
+# загруженные в Supabase Storage) через Table Editor.
+DEFAULT_SHOP_ITEMS = [
+    {
+        "key": "sample_nft_snake_box_fuchsia",  # только для сидирования case_pool, в БД не хранится
+        "type": "nft",
+        "collection": "Snake Box",
+        "model": "Fuchsia",
+        "background": "Aquamarine",
+        "symbol": "Pumpkin Coach",
+        "icon_png": "https://your-cdn.example.com/nft/snake_box_fuchsia.png",
+        "icon_gif": None,
+        "background_png": None,
+        "price_stars": 400,
+        "price_gp": 500,
+    },
+    {
+        "key": "sample_gift_teddy",
+        "type": "gift",
+        "collection": "Teddy",
+        "model": None,
+        "background": None,
+        "symbol": None,
+        "icon_png": "https://your-cdn.example.com/gift/teddy.png",
+        "icon_gif": None,
+        "background_png": None,
+        "price_stars": 15,
+        "price_gp": 13,
+    },
+    {
+        "key": "sample_stars",
+        "type": "stars",
+        "collection": None,
+        "model": None,
+        "background": None,
+        "symbol": None,
+        "icon_png": "https://your-cdn.example.com/stars/stars.png",
+        "icon_gif": None,
+        "background_png": None,
+        "price_stars": 15,
+        "price_gp": 13,
+    },
+]
+
+# Каких примерных предметов из DEFAULT_SHOP_ITEMS и с каким весом добавить
+# в пул выпадения кейса при первом сидировании — просто чтобы сразу после
+# деплоя было видно, что предметы реально выпадают из кейса, а не только
+# GP. Ключ ("key") соответствует полю "key" в DEFAULT_SHOP_ITEMS выше.
+DEFAULT_CASE_POOL = {
+    "gopvp_gold": [
+        {"key": "sample_nft_snake_box_fuchsia", "weight": 5, "rarity": "mythic"},
+        {"key": "sample_gift_teddy", "weight": 40, "rarity": "rare"},
+    ],
+}
 
 # Используется, чтобы получить читаемый label для предмета из shop_items,
 # когда он выпадает в кейсе (см. build_case_pool ниже).
@@ -295,10 +405,47 @@ def ensure_tables():
         # сумма весов активных строк отсюда, т.е. чем больше вес строки,
         # тем реальнее шанс выпадения (общий тираж роли пересчитывается
         # каждый раз, привязки к ровно 1000 больше нет).
+        # cases — список кейсов, которые видит пользователь на экране
+        # "Кейсы". Раньше был один кейс, зашитый в коде, теперь строка в
+        # этой таблице = отдельная карточка кейса на фронте. Добавить
+        # новый кейс = добавить строку сюда (+ призы в case_cash_items /
+        # case_pool с тем же case_key) — без изменений кода.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS cases (
+                case_key TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                cost INTEGER NOT NULL,
+                icon TEXT,
+                badge TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+
+        # case_cash_items — денежные призы (GP) КОНКРЕТНОГО кейса. Аналог
+        # старого захардкоженного CASE_ITEMS, но теперь у каждого кейса
+        # свой набор — сумма весов внутри одного case_key может быть любой,
+        # шанс выпадения считается относительно суммы весов всего пула
+        # этого кейса (cash + item), см. build_case_pool/roll_case_entry.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS case_cash_items (
+                id SERIAL PRIMARY KEY,
+                case_key TEXT NOT NULL REFERENCES cases(case_key) ON DELETE CASCADE,
+                label TEXT NOT NULL,
+                value INTEGER NOT NULL,
+                weight INTEGER NOT NULL,
+                rarity TEXT NOT NULL DEFAULT 'common',
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_case_cash_items_case ON case_cash_items (case_key)")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS case_pool (
                 id SERIAL PRIMARY KEY,
-                case_key TEXT NOT NULL DEFAULT 'gopvp_green',
+                case_key TEXT NOT NULL REFERENCES cases(case_key) ON DELETE CASCADE,
                 item_id INTEGER NOT NULL REFERENCES shop_items(id) ON DELETE CASCADE,
                 weight INTEGER NOT NULL,
                 rarity TEXT NOT NULL DEFAULT 'legendary',
@@ -306,6 +453,53 @@ def ensure_tables():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )
         """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_case_pool_case ON case_pool (case_key)")
+
+        # Сидим дефолтные кейсы ТОЛЬКО если таблица cases ещё пустая —
+        # чтобы повторные холодные старты и редеплои не затирали то, что
+        # админ уже поменял руками в Supabase.
+        cur.execute("SELECT COUNT(*) FROM cases")
+        if cur.fetchone()[0] == 0:
+            for c in DEFAULT_CASES:
+                cur.execute("""
+                    INSERT INTO cases (case_key, name, cost, icon, badge, sort_order)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (case_key) DO NOTHING
+                """, (c["case_key"], c["name"], c["cost"], c["icon"], c["badge"], c["sort_order"]))
+                for cash in c["cash_items"]:
+                    cur.execute("""
+                        INSERT INTO case_cash_items (case_key, label, value, weight, rarity)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (c["case_key"], cash["label"], cash["value"], cash["weight"], cash["rarity"]))
+
+        # Сидим примеры каталога предметов (NFT / Gift / Stars) ТОЛЬКО если
+        # shop_items ещё пустая — дальше это уже полностью зона Supabase
+        # Table Editor, код их не трогает и не перезаписывает.
+        cur.execute("SELECT COUNT(*) FROM shop_items")
+        if cur.fetchone()[0] == 0:
+            key_to_id = {}
+            for it in DEFAULT_SHOP_ITEMS:
+                cur.execute("""
+                    INSERT INTO shop_items
+                        (type, collection, model, background, symbol,
+                         icon_png, icon_gif, background_png, price_stars, price_gp)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (it["type"], it["collection"], it["model"], it["background"], it["symbol"],
+                      it["icon_png"], it["icon_gif"], it["background_png"],
+                      it["price_stars"], it["price_gp"]))
+                key_to_id[it["key"]] = cur.fetchone()[0]
+
+            for case_key, entries in DEFAULT_CASE_POOL.items():
+                for entry in entries:
+                    item_id = key_to_id.get(entry["key"])
+                    if item_id is None:
+                        continue
+                    cur.execute("""
+                        INSERT INTO case_pool (case_key, item_id, weight, rarity)
+                        VALUES (%s, %s, %s, %s)
+                    """, (case_key, item_id, entry["weight"], entry["rarity"]))
+
         cur.close()
     _tables_ready = True
 
@@ -505,21 +699,39 @@ def roll_section() -> tuple[int, dict]:
     return len(WHEEL_SECTIONS) - 1, WHEEL_SECTIONS[-1]
 
 
-def build_case_pool(cur) -> list:
-    """Собирает единый пул кейса: денежные призы (CASE_ITEMS, захардкожены)
-    + предметы (case_pool -> shop_items, настраиваются в Supabase). Порядок
-    ДЕТЕРМИНИРОВАН (сначала CASE_ITEMS по порядку объявления, потом строки
-    case_pool по id) — фронт получает точно такой же список и по нему же
-    строит ленту прокрутки, поэтому item_index из /api/cases/open обязан
-    указывать на ту же позицию, что и в /api/cases."""
+def get_case_or_404(cur, case_key: str) -> dict:
+    cur.execute("""
+        SELECT case_key, name, cost, icon, badge FROM cases
+        WHERE case_key = %s AND is_active = TRUE
+    """, (case_key,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Кейс не найден")
+    return {"case_key": row[0], "name": row[1], "cost": row[2], "icon": row[3], "badge": row[4]}
+
+
+def build_case_pool(cur, case_key: str) -> list:
+    """Собирает единый пул ОДНОГО кейса (case_key): денежные призы
+    (case_cash_items) + предметы (case_pool -> shop_items). Оба источника
+    настраиваются в Supabase, код можно не трогать. Порядок ДЕТЕРМИНИРОВАН
+    (сначала денежные призы по id, потом предметы по id) — фронт получает
+    точно такой же список и по нему же строит ленту прокрутки, поэтому
+    item_index из /api/cases/{case_key}/open обязан указывать на ту же
+    позицию, что и в /api/cases/{case_key}."""
     pool = []
-    for it in CASE_ITEMS:
+
+    cur.execute("""
+        SELECT label, value, weight, rarity FROM case_cash_items
+        WHERE case_key = %s AND is_active = TRUE
+        ORDER BY id ASC
+    """, (case_key,))
+    for label, value, weight, rarity in cur.fetchall():
         pool.append({
             "kind": "cash",
-            "label": it["label"],
-            "value": it["value"],
-            "weight": it["weight"],
-            "rarity": it["rarity"],
+            "label": label,
+            "value": value,
+            "weight": weight,
+            "rarity": rarity,
         })
 
     cur.execute("""
@@ -528,9 +740,9 @@ def build_case_pool(cur) -> list:
                si.price_stars, si.price_gp
         FROM case_pool cp
         JOIN shop_items si ON si.id = cp.item_id
-        WHERE cp.is_active = TRUE AND si.is_active = TRUE
+        WHERE cp.case_key = %s AND cp.is_active = TRUE AND si.is_active = TRUE
         ORDER BY cp.id ASC
-    """)
+    """, (case_key,))
     for row in cur.fetchall():
         (weight, rarity, item_id, type_, collection, model, background, symbol,
          icon_png, icon_gif, background_png, price_stars, price_gp) = row
@@ -600,7 +812,7 @@ async def spin(body: SpinBody, token: str = Depends(bearer_token)):
         balance = row[0] if row else 0
         if balance < bet:
             cur.close()
-            raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
+            raise HTTPException(status_code=400, detail="Недостаточно GP на балансе")
 
         new_balance = balance + net
         cur.execute("""
@@ -635,11 +847,39 @@ async def spin(body: SpinBody, token: str = Depends(bearer_token)):
 
 
 @app.get("/api/cases")
-async def get_cases(token: str = Depends(bearer_token)):
+async def list_cases(token: str = Depends(bearer_token)):
+    """Список ВСЕХ активных кейсов для экрана "Кейсы" — просто карточки
+    (ключ/имя/цена/иконка), без содержимого. Содержимое конкретного кейса
+    подгружается отдельно через /api/cases/{case_key}, когда пользователь
+    открывает экран этого кейса."""
     with db() as conn:
         require_session(conn, token)
         cur = conn.cursor()
-        pool = build_case_pool(cur)
+        cur.execute("""
+            SELECT case_key, name, cost, icon, badge FROM cases
+            WHERE is_active = TRUE
+            ORDER BY sort_order ASC, case_key ASC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+
+    return {
+        "cases": [
+            {"case_key": r[0], "name": r[1], "cost": r[2], "icon": r[3], "badge": r[4]}
+            for r in rows
+        ]
+    }
+
+
+@app.get("/api/cases/{case_key}")
+async def get_case_detail(case_key: str, token: str = Depends(bearer_token)):
+    """Содержимое ОДНОГО кейса (цена + пул призов) — используется на
+    экране открытия конкретного кейса."""
+    with db() as conn:
+        require_session(conn, token)
+        cur = conn.cursor()
+        case = get_case_or_404(cur, case_key)
+        pool = build_case_pool(cur, case_key)
         cur.close()
 
     items = []
@@ -651,28 +891,40 @@ async def get_cases(token: str = Depends(bearer_token)):
             entry["item"] = p["item"]
         items.append(entry)
 
-    return {"cost": CASE_COST, "items": items}
+    return {
+        "case_key": case["case_key"],
+        "name": case["name"],
+        "icon": case["icon"],
+        "cost": case["cost"],
+        "items": items,
+    }
 
 
-@app.post("/api/cases/open")
-async def open_case(token: str = Depends(bearer_token)):
+@app.post("/api/cases/{case_key}/open")
+async def open_case(case_key: str, token: str = Depends(bearer_token)):
     with db() as conn:
         user = require_session(conn, token)
         user_id, username = user["user_id"], user["username"]
         cur = conn.cursor()
 
-        pool = build_case_pool(cur)
+        case = get_case_or_404(cur, case_key)
+        case_cost = case["cost"]
+
+        pool = build_case_pool(cur, case_key)
+        if not pool:
+            cur.close()
+            raise HTTPException(status_code=500, detail="У кейса не настроены призы")
         index, entry = roll_case_entry(pool)
 
         cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
         balance = row[0] if row else 0
-        if balance < CASE_COST:
+        if balance < case_cost:
             cur.close()
-            raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
+            raise HTTPException(status_code=400, detail="Недостаточно GP на балансе")
 
         if entry["kind"] == "cash":
-            net = entry["value"] - CASE_COST
+            net = entry["value"] - case_cost
             new_balance = balance + net
             cur.execute("""
                 INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
@@ -685,7 +937,7 @@ async def open_case(token: str = Depends(bearer_token)):
                 INSERT INTO game_rounds
                     (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
                 VALUES (%s, 'case', %s, %s, %s, %s, %s)
-            """, (user_id, CASE_COST, entry["label"], entry["value"], net, new_balance))
+            """, (user_id, case_cost, entry["label"], entry["value"], net, new_balance))
             cur.close()
 
             return {
@@ -695,14 +947,14 @@ async def open_case(token: str = Depends(bearer_token)):
                 "label": entry["label"],
                 "value": entry["value"],
                 "rarity": entry["rarity"],
-                "cost": CASE_COST,
+                "cost": case_cost,
                 "new_balance": new_balance,
             }
 
         # entry["kind"] == "item" — приз уходит не деньгами, а предметом
         # в инвентарь; ставка (стоимость кейса) всё равно списывается.
         item = entry["item"]
-        net = -CASE_COST
+        net = -case_cost
         new_balance = balance + net
         cur.execute("""
             INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
@@ -726,7 +978,7 @@ async def open_case(token: str = Depends(bearer_token)):
             INSERT INTO game_rounds
                 (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
             VALUES (%s, 'case', %s, %s, 0, %s, %s)
-        """, (user_id, CASE_COST, entry["label"], net, new_balance))
+        """, (user_id, case_cost, entry["label"], net, new_balance))
         cur.close()
 
         new_item = {
@@ -752,7 +1004,7 @@ async def open_case(token: str = Depends(bearer_token)):
             "item_index": index,
             "label": entry["label"],
             "rarity": entry["rarity"],
-            "cost": CASE_COST,
+            "cost": case_cost,
             "new_balance": new_balance,
             "new_item": new_item,
         }
@@ -848,7 +1100,7 @@ async def exchange_inventory_item(inventory_id: int, body: InventoryExchangeBody
                 INSERT INTO game_rounds
                     (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
                 VALUES (%s, 'exchange', 0, %s, %s, %s, %s)
-            """, (user_id, f"Обмен: {item['collection'] or item['type']} → шансы",
+            """, (user_id, f"Обмен: {item['collection'] or item['type']} → GP",
                   item["price_gp"], item["price_gp"], new_balance))
             cur.close()
             return {"ok": True, "currency": "gp", "new_balance": new_balance, "credited": item["price_gp"]}
@@ -1286,7 +1538,7 @@ async def aviator_bet(
             cur.close()
             raise HTTPException(
                 status_code=400,
-                detail="Недостаточно шансов на балансе"
+                detail="Недостаточно GP на балансе"
             )
 
         # --------------------------------------------------
@@ -1778,7 +2030,7 @@ async def blackjack_start(body: BlackjackBetBody, token: str = Depends(bearer_to
         balance = row[0] if row else 0
         if balance < bet:
             cur.close()
-            raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
+            raise HTTPException(status_code=400, detail="Недостаточно GP на балансе")
 
         deck = bj_new_deck()
         player_cards = [deck.pop(), deck.pop()]
@@ -1906,7 +2158,7 @@ async def blackjack_double(body: BlackjackHandBody, token: str = Depends(bearer_
         balance = row[0] if row else 0
         if balance < hand["bet"]:
             cur.close()
-            raise HTTPException(status_code=400, detail="Недостаточно шансов для удвоения")
+            raise HTTPException(status_code=400, detail="Недостаточно GP для удвоения")
 
         new_balance = balance - hand["bet"]
         cur.execute("UPDATE user_chances SET balance = %s WHERE user_id = %s", (new_balance, user_id))
