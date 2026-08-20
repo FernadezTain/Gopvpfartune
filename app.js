@@ -80,7 +80,7 @@
 
   let pendingTelegramId = null;
   let sections = [];
-  let minBet = 5, betStep = 5, maxBet = 100;
+  let minBet = 5, betStep = 5, maxBet = Infinity;
   let bet = 5;
   let currentDeg = 0;
   let spinning = false;
@@ -266,7 +266,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
     sections = me.sections;
     minBet = me.min_bet;
     betStep = me.bet_step;
-    maxBet = me.max_bet;
+    maxBet = me.max_bet == null ? Infinity : me.max_bet; // null с сервера = без ограничения сверху
     bet = minBet;
 
     window.AppState.telegramId = me.telegram_id;
