@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>Go pvp — Игры</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div class="bg-decor" aria-hidden="true"></div>
+<div class="noise-overlay" aria-hidden="true"></div>
+
+<!-- ЭКРАН ЗАГРУЗКИ -->
+<div id="preloader" class="preloader">
+  <div class="preloader-letters">
+    <span class="letters-base" aria-hidden="true">GP</span>
+    <span id="lettersFill" class="letters-fill" aria-hidden="true">GP</span>
+  </div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="icon-logo" aria-hidden="true"></span>
+    <span class="brand-text">Go&nbsp;pvp</span>
+  </div>
+  <div id="backBtn" class="back-btn hidden">
+    <span class="icon-back" aria-hidden="true"></span><span>Назад</span>
+  </div>
+  <div id="balanceChip" class="balance-chip hidden">
+    <span class="balance-label">Баланс</span>
+    <span id="balanceValue" class="balance-value">0</span>
+    <span class="balance-unit">шанс.</span>
+  </div>
+</header>
+
+<!-- ЭКРАН ВХОДА -->
+<main id="loginScreen" class="login-screen hidden">
+  <div class="login-card">
+    <p class="eyebrow">Вход через Telegram</p>
+    <h1 class="login-title">Крутите колесо,<br />запускайте самолёт</h1>
+    <p class="login-sub">Введите свой Telegram ID — мы пришлём код подтверждения прямо в бота.</p>
+
+    <form id="idForm" class="login-form">
+      <label class="field-label" for="telegramId">Telegram ID</label>
+      <input id="telegramId" class="field-input" type="text" inputmode="numeric" autocomplete="off"
+             placeholder="например, 106240982" required />
+      <button type="submit" class="btn btn-primary" id="sendCodeBtn">Отправить код</button>
+      <p class="hint">Не знаете ID? Спросите у бота — команда <code>/start</code> подскажет.</p>
+    </form>
+
+    <form id="codeForm" class="login-form hidden">
+      <label class="field-label" for="codeInput">Код из Telegram</label>
+      <input id="codeInput" class="field-input code-input" type="text" inputmode="numeric" maxlength="6"
+             placeholder="______" autocomplete="one-time-code" required />
+      <button type="submit" class="btn btn-primary" id="verifyBtn">Войти</button>
+      <button type="button" class="btn btn-ghost" id="resendBtn">Отправить код ещё раз</button>
+    </form>
+
+    <p id="loginError" class="login-error hidden"></p>
+  </div>
+</main>
+
+<!-- ЭКРАН КЕЙСОВ -->
+<main id="casesScreen" class="cases-screen hidden">
+  <p class="menu-title">Кейсы</p>
+  <div class="case-grid" id="caseGrid">
+    <button class="case-card" id="caseCardBtn" data-case="gopvp_green">
+      <span class="case-card-badge">Новое</span>
+      <img class="case-card-img" src="case_icon/Gopvp_greencase.png" alt="Gopvp Green Case" />
+      <span class="case-card-price"><span class="icon-chance-coin" aria-hidden="true"></span><span id="caseListPrice">30</span></span>
+      <span class="case-card-name">Стартовый кейс</span>
+    </button>
+  </div>
+</main>
+
+<!-- ГЛАВНОЕ МЕНЮ -->
+<main id="mainMenuScreen" class="menu-screen hidden">
+  <p class="menu-title">Игры</p>
+  <div class="game-grid">
+    <button class="game-card game-card-wheel" data-target="wheelScreen">
+      <span class="game-card-arrow" aria-hidden="true"></span>
+      <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-wheel"></span></span>
+      <span class="game-card-name">Колесо Фортуны</span>
+      <span class="game-card-sub">Крути и множь шансы</span>
+    </button>
+    <button class="game-card game-card-aviator" data-target="aviatorScreen">
+      <span class="game-card-arrow" aria-hidden="true"></span>
+      <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-plane"></span></span>
+      <span class="game-card-name">Авиатор</span>
+      <span class="game-card-sub">Успей забрать до краша</span>
+    </button>
+    <button class="game-card game-card-blackjack" data-target="blackjackScreen">
+      <span class="game-card-arrow" aria-hidden="true"></span>
+      <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-cards"></span></span>
+      <span class="game-card-name">Блэкджек</span>
+      <span class="game-card-sub">Собери 21 против дилера</span>
+    </button>
+  </div>
+</main>
+
+<!-- ЭКРАН КОЛЕСА -->
+<main id="wheelScreen" class="wheel-screen hidden">
+  <div class="wheel-layout">
+
+    <section class="wheel-stage">
+      <div class="wheel-pointer" aria-hidden="true"></div>
+      <div class="wheel-rim">
+        <div id="wheel" class="wheel"></div>
+        <div class="wheel-hub">SPIN</div>
+      </div>
+
+      <div id="resultBadge" class="result-badge hidden"></div>
+    </section>
+
+    <div class="wheel-side">
+      <section class="control-panel">
+        <div class="bet-control">
+          <span class="bet-label">Ставка</span>
+          <div class="bet-stepper">
+            <button type="button" id="betMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
+            <input id="betValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
+            <button type="button" id="betPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+          </div>
+          <span class="bet-unit">шансов</span>
+        </div>
+
+        <button id="spinBtn" class="btn btn-spin">
+          <span class="btn-spin-text">Крутить</span>
+          <span class="btn-spin-cost" id="spinCost">−5 шансов</span>
+        </button>
+
+        <p id="spinError" class="spin-error hidden"></p>
+      </section>
+
+      <section class="legend">
+        <p class="legend-title">Секции колеса</p>
+        <ul class="legend-list" id="legendList"></ul>
+      </section>
+
+      <section class="legend">
+        <p class="legend-title">Последние игры</p>
+        <ul id="wheelRecentGamesList" class="recent-games-list">
+          <li class="history-empty">Загрузка…</li>
+        </ul>
+      </section>
+    </div>
+
+  </div>
+</main>
+
+<!-- ЭКРАН САМОЛЁТИКА -->
+<main id="aviatorScreen" class="aviator-screen hidden">
+  <div class="aviator-layout">
+
+    <section class="aviator-stage">
+      <div class="aviator-stage-grid" aria-hidden="true"></div>
+      <canvas id="aviatorCanvas" class="aviator-canvas"></canvas>
+      <div id="aviatorPlane" class="aviator-plane is-hidden" aria-hidden="true">
+        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="4,58 60,32 4,6 18,32" fill="#ffd77a"/>
+          <polygon points="4,58 22,38 18,32" fill="#d9862c"/>
+          <polygon points="4,6 22,26 18,32" fill="#fff2d0"/>
+        </svg>
+      </div>
+      <div class="aviator-readout">
+        <p class="aviator-readout-label">Множитель</p>
+        <div id="aviatorMultiplier" class="aviator-multiplier">1.00x</div>
+      </div>
+      <div id="aviatorStatus" class="aviator-status">Ожидание ставок…</div>
+    </section>
+
+    <div class="aviator-side">
+      <section class="control-panel">
+        <div class="bet-control">
+          <span class="bet-label">Ставка</span>
+          <div class="bet-stepper">
+            <button type="button" id="aviBetMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
+            <input id="aviBetValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
+            <button type="button" id="aviBetPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+          </div>
+          <span class="bet-unit">шансов</span>
+        </div>
+
+        <button id="aviActionBtn" class="btn btn-spin">
+          <span class="btn-spin-text" id="aviActionText">Поставить</span>
+          <span class="btn-spin-cost" id="aviActionCost">−5 шансов</span>
+        </button>
+
+        <p id="aviError" class="spin-error hidden"></p>
+      </section>
+
+      <section class="legend">
+        <p class="legend-title">Последние игры</p>
+        <ul id="aviRecentGamesList" class="recent-games-list">
+          <li class="history-empty">Загрузка…</li>
+        </ul>
+      </section>
+    </div>
+
+  </div>
+</main>
+
+<!-- ЭКРАН БЛЭКДЖЕКА -->
+<main id="blackjackScreen" class="aviator-screen hidden">
+  <div class="aviator-layout">
+
+    <section class="aviator-stage bj-stage">
+      <div class="bj-hand">
+        <p class="bj-hand-label">Дилер <span id="bjDealerTotal" class="bj-hand-total"></span></p>
+        <div id="bjDealerCards" class="bj-cards"></div>
+      </div>
+      <div class="bj-hand">
+        <p class="bj-hand-label">Вы <span id="bjPlayerTotal" class="bj-hand-total"></span></p>
+        <div id="bjPlayerCards" class="bj-cards"></div>
+      </div>
+      <div id="bjStatus" class="aviator-status">Сделайте ставку</div>
+    </section>
+
+    <div class="aviator-side">
+      <section class="control-panel">
+        <div class="bet-control">
+          <span class="bet-label">Ставка</span>
+          <div class="bet-stepper">
+            <button type="button" id="bjBetMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
+            <input id="bjBetValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
+            <button type="button" id="bjBetPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
+          </div>
+          <span class="bet-unit">шансов</span>
+        </div>
+
+        <button id="bjDealBtn" class="btn btn-spin">
+          <span class="btn-spin-text">Раздать</span>
+          <span class="btn-spin-cost" id="bjDealCost">−5 шансов</span>
+        </button>
+
+        <div id="bjActions" class="bj-actions hidden">
+          <button type="button" id="bjHitBtn" class="btn btn-ghost">Ещё карту</button>
+          <button type="button" id="bjStandBtn" class="btn btn-ghost">Хватит</button>
+          <button type="button" id="bjDoubleBtn" class="btn btn-ghost">Удвоить</button>
+        </div>
+
+        <p id="bjError" class="spin-error hidden"></p>
+      </section>
+
+      <section class="legend">
+        <p class="legend-title">Последние игры</p>
+        <ul id="bjRecentGamesList" class="recent-games-list">
+          <li class="history-empty">Загрузка…</li>
+        </ul>
+      </section>
+    </div>
+
+  </div>
+</main>
+
+<!-- ЭКРАН ОТКРЫТИЯ КЕЙСА -->
+<main id="caseDetailScreen" class="cases-screen hidden">
+  <div class="case-hero">
+    <img class="case-hero-icon" id="caseHeroIcon" src="case_icon/Gopvp_greencase.png" alt="Стартовый кейс" />
+    <p class="case-hero-name" id="caseHeroName">Стартовый кейс</p>
+    <p class="case-hero-sub">Испытай удачу и получи шансы</p>
+
+    <div id="caseReel" class="case-reel hidden">
+      <div class="case-reel-viewport">
+        <div id="caseReelTrack" class="case-reel-track"></div>
+        <div class="case-reel-pointer" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <button id="caseOpenBtn" class="btn btn-spin case-open-btn">
+      <span class="btn-spin-text">Открыть кейс</span>
+      <span class="btn-spin-cost" id="caseOpenCost">−30 шансов</span>
+    </button>
+
+    <p id="caseError" class="spin-error hidden"></p>
+    <div id="caseResultBadge" class="result-badge hidden"></div>
+  </div>
+
+  <section class="legend case-content-panel">
+    <p class="legend-title">Содержимое кейса</p>
+    <div id="caseItemsGrid" class="case-items-grid"></div>
+  </section>
+
+  <section class="legend">
+    <p class="legend-title">Последние игры</p>
+    <ul id="caseRecentGamesList" class="recent-games-list">
+      <li class="history-empty">Загрузка…</li>
+    </ul>
+  </section>
+</main>
+
+<!-- ПРОФИЛЬ -->
+<main id="profileScreen" class="profile-screen hidden">
+  <div class="profile-card">
+    <div class="profile-avatar"><span class="icon-user-lg" aria-hidden="true"></span></div>
+    <p id="profileName" class="profile-name">—</p>
+    <p id="profileId" class="profile-id">ID: —</p>
+    <div class="profile-balance">
+      <span class="balance-label">Баланс</span>
+      <span id="profileBalance" class="balance-value">0</span>
+      <span class="balance-unit">шанс.</span>
+    </div>
+  </div>
+  <button id="openInventoryBtn" class="btn btn-primary btn-history">Инвентарь</button>
+  <button id="openHistoryBtn" class="btn btn-ghost-outline btn-history">История игр</button>
+  <button id="logoutBtn" class="btn btn-ghost">Выйти из аккаунта</button>
+</main>
+
+<!-- ЭКРАН ИНВЕНТАРЯ -->
+<main id="inventoryScreen" class="cases-screen inventory-screen hidden">
+  <p class="menu-title">Инвентарь</p>
+
+  <div id="invEmpty" class="inv-empty hidden">
+    <span class="inv-empty-icon" aria-hidden="true">🎒</span>
+    <p>Пока пусто. Открывайте кейсы и получайте предметы — они появятся здесь.</p>
+  </div>
+
+  <div id="invGrid" class="inv-grid"></div>
+</main>
+
+<!-- МОДАЛКА: УПРАВЛЕНИЕ ПРЕДМЕТОМ -->
+<div id="invManageModal" class="modal-overlay hidden">
+  <div class="modal-panel inv-manage-panel">
+    <button type="button" class="modal-close" id="invManageClose" aria-label="Закрыть">✕</button>
+    <p class="modal-eyebrow">Управление предметом</p>
+
+    <div class="inv-manage-icon-wrap">
+      <div id="invManageIconBg" class="inv-manage-icon-bg">
+        <img id="invManageIcon" class="inv-manage-icon" src="" alt="" />
+      </div>
+    </div>
+    <p id="invManageName" class="inv-manage-name">—</p>
+
+    <div class="inv-manage-actions">
+      <button type="button" id="invExchangeBtn" class="btn btn-primary inv-action-btn">Обменять</button>
+      <button type="button" id="invClaimBtn" class="btn btn-ghost-outline inv-action-btn">Получить</button>
+    </div>
+
+    <div id="invManageRows" class="inv-manage-rows"></div>
+  </div>
+</div>
+
+<!-- МОДАЛКА: ОБМЕН ПРЕДМЕТА -->
+<div id="invExchangeModal" class="modal-overlay hidden">
+  <div class="modal-panel inv-exchange-panel">
+    <button type="button" class="modal-close" id="invExchangeClose" aria-label="Закрыть">✕</button>
+    <p class="modal-title">Обмен предмета</p>
+    <p class="modal-question">1. На что обмен?</p>
+
+    <div class="inv-currency-toggle" id="invCurrencyToggle">
+      <button type="button" class="inv-currency-opt is-active" data-currency="stars">
+        <span class="inv-currency-icon">⭐</span> Stars
+      </button>
+      <button type="button" class="inv-currency-opt" data-currency="gp">
+        <span class="icon-chance-coin" aria-hidden="true"></span> Шансы
+      </button>
+    </div>
+
+    <p id="invExchangeError" class="spin-error hidden"></p>
+
+    <div class="inv-exchange-footer">
+      <button type="button" id="invExchangeCancel" class="btn btn-ghost-outline">Отмена</button>
+      <button type="button" id="invExchangeConfirm" class="btn btn-primary">Обменять</button>
+    </div>
+  </div>
+</div>
+
+<!-- ТОСТ-УВЕДОМЛЕНИЯ -->
+<div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+<!-- ИСТОРИЯ ИГР -->
+<main id="historyScreen" class="history-screen hidden">
+  <p class="menu-title">История игр</p>
+  <div class="history-table-wrap">
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Игра</th>
+          <th>ID игры</th>
+          <th>Ставка</th>
+          <th>Результат</th>
+          <th>Баланс</th>
+        </tr>
+      </thead>
+      <tbody id="historyTableBody">
+        <tr><td colspan="5" class="history-empty">Загрузка…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<!-- НИЖНЯЯ НАВИГАЦИЯ -->
+<nav id="bottomNav" class="bottom-nav hidden">
+  <button class="nav-btn is-active" id="navHome" data-target="mainMenuScreen">
+    <span class="nav-icon"><span class="icon-home"></span></span><span>Главная</span>
+  </button>
+  <button class="nav-btn" id="navCases" data-target="casesScreen">
+    <span class="nav-icon"><span class="icon-case-nav"></span></span><span>Кейсы</span>
+  </button>
+  <button class="nav-btn" id="navProfile" data-target="profileScreen">
+    <span class="nav-icon"><span class="icon-user"></span></span><span>Профиль</span>
+  </button>
+</nav>
+
+<script src="config.js"></script>
+<script src="app.js?v=2"></script>
+<script src="aviator.js?v=2"></script>
+<script src="cases.js?v=2"></script>
+<script src="blackjack.js?v=2"></script>
+<script src="inventory.js?v=1"></script>
+</body>
+</html>
