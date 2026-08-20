@@ -1,15 +1,18 @@
 (function () {
   "use strict";
 
-  // Этот файл раньше был случайной копией app.js (из-за чего экран кейсов
-  // не работал вообще — а то, что было видно на экране, это просто
-  // статичная разметка из index.html без какой-либо логики). Здесь —
-  // настоящая реализация:
-  //
-  //   1. Пользователь жмёт "Открыть кейс".
-  //   2. Сервер (POST /api/cases/open) сам решает выигрыш — вес секций
-  //      известен только бэкенду — и отдаёт на фронт item_index + label.
-  //   3. Фронт строит длинную ленту предметов (случайные для "мусора" +
+  // Экран "Кейсы":
+  //   1. Экран СПИСКА кейсов — карточки тянутся с сервера (GET /api/cases),
+  //      у каждого кейса свой ключ (case_key), имя, цена и иконка. Раньше
+  //      здесь была всегда одна и та же захардкоженная в index.html
+  //      карточка — теперь кейсов может быть сколько угодно, и каждый со
+  //      своим содержимым (настраивается в Supabase, без правок кода).
+  //   2. Пользователь жмёт на карточку кейса -> открывается экран ОДНОГО
+  //      кейса, его содержимое подгружается через GET /api/cases/{case_key}.
+  //   3. "Открыть кейс" -> POST /api/cases/{case_key}/open. Сервер сам
+  //      решает выигрыш (вес секций известен только бэкенду) и отдаёт на
+  //      фронт item_index + label.
+  //   4. Фронт строит длинную ленту предметов (случайные для "мусора" +
   //      ОБЯЗАТЕЛЬНО серверный предмет на фиксированной позиции) и
   //      анимирует прокрутку СПРАВА НАЛЕВО, которая тормозит и
   //      останавливается ровно на предмете с сервера под указателем.
@@ -18,7 +21,7 @@
   // визуализирует уже принятое сервером решение.
 
   const els = {
-    caseListPrice: document.getElementById("caseListPrice"),
+    caseGrid: document.getElementById("caseGrid"),
 
     caseDetailScreen: document.getElementById("caseDetailScreen"),
     caseHeroIcon: document.getElementById("caseHeroIcon"),
@@ -48,16 +51,84 @@
   const LANDING_POS = 48; // на какой по счёту карточке должна остановиться лента
   const SPIN_MS = 5200; // должно совпадать с transition-duration ниже
 
-  let caseData = null; // { cost, items: [{label, value, weight, rarity}] }
+  let caseList = null; // [{case_key, name, cost, icon, badge}, ...]
+  let activeCase = null; // {case_key, name, cost, icon}
+  let caseData = null; // { cost, items: [{label, value, weight, rarity}] } — для activeCase
   let opening = false;
 
-  function getEl(id) {
-    return document.getElementById(id);
+  // ---------- список кейсов ----------
+
+  async function loadCaseList(force) {
+    if (caseList && !force) return caseList;
+    const data = await window.AppState.api("/api/cases", { auth: true });
+    caseList = data.cases || [];
+    return caseList;
   }
 
-  async function loadCaseData(force) {
+  async function onEnter() {
+    if (!els.caseGrid) return;
+    els.caseGrid.innerHTML = `<div class="cases-loading">Загрузка кейсов…</div>`;
+    try {
+      const list = await loadCaseList(true);
+      renderCaseGrid(list);
+    } catch (err) {
+      els.caseGrid.innerHTML = `<p class="cases-error">${escapeHtml(err.message || "Не удалось загрузить кейсы")}</p>`;
+    }
+  }
+
+  function renderCaseGrid(list) {
+    els.caseGrid.innerHTML = "";
+    if (!list.length) {
+      els.caseGrid.innerHTML = `<p class="cases-error">Пока нет доступных кейсов</p>`;
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    list.forEach((c) => fragment.appendChild(buildCaseCard(c)));
+    els.caseGrid.appendChild(fragment);
+  }
+
+  function buildCaseCard(c) {
+    const btn = document.createElement("button");
+    btn.className = "case-card";
+    btn.dataset.case = c.case_key;
+    btn.innerHTML = `
+      ${c.badge ? `<span class="case-card-badge">${escapeHtml(c.badge)}</span>` : ""}
+      <img class="case-card-img" src="${escapeHtml(c.icon || "")}" alt="${escapeHtml(c.name)}" />
+      <span class="case-card-price"><span class="icon-chance-coin" aria-hidden="true"></span><span>${c.cost}</span></span>
+      <span class="case-card-name">${escapeHtml(c.name)}</span>
+    `;
+    btn.addEventListener("click", () => openCaseDetailScreen(c));
+    return btn;
+  }
+
+  async function openCaseDetailScreen(c) {
+    activeCase = c;
+    window.AppState.navigateTo("caseDetailScreen");
+
+    resetDetailScreen();
+
+    if (els.caseHeroIcon) {
+      els.caseHeroIcon.src = c.icon || "";
+      els.caseHeroIcon.alt = c.name || "";
+    }
+    if (els.caseHeroName) {
+      els.caseHeroName.textContent = c.name || "";
+    }
+    if (els.caseOpenCost) els.caseOpenCost.textContent = `−${c.cost} GP`;
+
+    try {
+      const data = await loadCaseData(c.case_key, true);
+      if (els.caseOpenCost) els.caseOpenCost.textContent = `−${data.cost} GP`;
+      renderItemsGrid(data.items);
+      window.AppState.fetchRecentGames(els.caseRecentGamesList, "case");
+    } catch (err) {
+      showCaseError(err.message);
+    }
+  }
+
+  async function loadCaseData(caseKey, force) {
     if (caseData && !force) return caseData;
-    const data = await window.AppState.api("/api/cases", { auth: true });
+    const data = await window.AppState.api(`/api/cases/${encodeURIComponent(caseKey)}`, { auth: true });
 
     // Для предметных призов (kind: "item") заранее считаем иконку, которую
     // покажем и в списке содержимого, и в ленте прокрутки: ТОЛЬКО статичная
@@ -77,55 +148,8 @@
     return caseData;
   }
 
-  // ---------- список кейсов ----------
-
-  async function onEnter() {
-    try {
-      const data = await loadCaseData();
-      if (els.caseListPrice) els.caseListPrice.textContent = data.cost;
-    } catch (_) {
-      // список кейсов не критичен — если не подгрузилось, просто останется
-      // дефолтная цена из разметки
-    }
-  }
-
-  // На случай будущих доп. кейсов вешаем обработчик на все .case-card, а
-  // не только на текущий единственный — имя и картинка на экране открытия
-  // всегда берутся из той карточки, по которой кликнули, а не хардкодятся.
-  document.querySelectorAll(".case-card").forEach((btn) => {
-    btn.addEventListener("click", () => openCaseDetailScreen(btn));
-  });
-
-  async function openCaseDetailScreen(cardBtn) {
-    window.AppState.navigateTo("caseDetailScreen");
-
-    resetDetailScreen();
-
-    // Название и иконка кейса — из карточки, по которой кликнули (единый
-    // источник данных с экраном списка кейсов), а не отдельный хардкод.
-    if (cardBtn) {
-      const cardImg = cardBtn.querySelector(".case-card-img");
-      const cardName = cardBtn.querySelector(".case-card-name");
-      if (els.caseHeroIcon && cardImg) {
-        els.caseHeroIcon.src = cardImg.src;
-        els.caseHeroIcon.alt = cardImg.alt || "";
-      }
-      if (els.caseHeroName && cardName) {
-        els.caseHeroName.textContent = cardName.textContent;
-      }
-    }
-
-    try {
-      const data = await loadCaseData();
-      if (els.caseOpenCost) els.caseOpenCost.textContent = `−${data.cost} шансов`;
-      renderItemsGrid(data.items);
-      window.AppState.fetchRecentGames(els.caseRecentGamesList, "case");
-    } catch (err) {
-      showCaseError(err.message);
-    }
-  }
-
   function resetDetailScreen() {
+    caseData = null;
     hideCaseError();
     if (els.caseResultBadge) els.caseResultBadge.classList.add("hidden");
     if (els.caseReel) els.caseReel.classList.add("hidden");
@@ -135,6 +159,7 @@
       els.caseReelTrack.innerHTML = "";
     }
     if (els.caseItemsGrid) {
+      els.caseItemsGrid.innerHTML = "";
       els.caseItemsGrid.querySelectorAll(".case-item.is-won").forEach((el) => el.classList.remove("is-won"));
     }
   }
@@ -255,7 +280,7 @@
   }
 
   async function handleOpenCase() {
-    if (opening) return;
+    if (opening || !activeCase) return;
     opening = true;
     els.caseOpenBtn.disabled = true;
     hideCaseError();
@@ -265,10 +290,11 @@
     }
 
     try {
-      // Шаг 1: сервер уже сейчас решил, что выпадет, и списал/начислил баланс.
+      // Шаг 1: сервер уже сейчас решил, что выпадет в ЭТОМ кейсе, и
+      // списал/начислил баланс.
       const [result, data] = await Promise.all([
-        window.AppState.api("/api/cases/open", { method: "POST", auth: true }),
-        loadCaseData(),
+        window.AppState.api(`/api/cases/${encodeURIComponent(activeCase.case_key)}/open`, { method: "POST", auth: true }),
+        loadCaseData(activeCase.case_key),
       ]);
 
       // Шаг 2: фронт просто визуализирует уже принятое решение сервера.
@@ -296,7 +322,7 @@
     if (data.kind === "item") {
       // Приз — предмет в инвентарь, а не деньги: ставка (стоимость кейса)
       // всё равно списана, поэтому визуально это "win" (получили предмет),
-      // но сумму в шансах тут не показываем — её просто не было.
+      // но сумму в GP тут не показываем — её просто не было.
       els.caseResultBadge.classList.add("win");
       els.caseResultBadge.textContent = `${data.label} · предмет добавлен в инвентарь`;
       return;
@@ -305,10 +331,10 @@
     const net = data.value - data.cost;
     if (net > 0) {
       els.caseResultBadge.classList.add("win");
-      els.caseResultBadge.textContent = `${data.label} · +${net} шансов`;
+      els.caseResultBadge.textContent = `${data.label} · +${net} GP`;
     } else if (net < 0) {
       els.caseResultBadge.classList.add("lose");
-      els.caseResultBadge.textContent = `${data.label} · −${Math.abs(net)} шансов`;
+      els.caseResultBadge.textContent = `${data.label} · −${Math.abs(net)} GP`;
     } else {
       els.caseResultBadge.classList.add("flat");
       els.caseResultBadge.textContent = `${data.label} · ставка возвращена`;
