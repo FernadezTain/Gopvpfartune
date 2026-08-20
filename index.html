@@ -291,7 +291,15 @@
 <!-- ПРОФИЛЬ -->
 <main id="profileScreen" class="profile-screen hidden">
   <div class="profile-card">
-    <div class="profile-avatar"><span class="icon-user-lg" aria-hidden="true"></span></div>
+    <div id="profileAvatarWrap" class="profile-avatar">
+      <span id="profileAvatarPh" class="icon-user-lg" aria-hidden="true"></span>
+      <img id="profileAvatarImg" class="profile-avatar-img hidden" src="" alt="" />
+      <button type="button" id="avatarEditBtn" class="avatar-edit-btn" aria-label="Изменить аватарку">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
     <p id="profileName" class="profile-name">—</p>
     <p id="profileId" class="profile-id">ID: —</p>
     <div class="profile-balance">
@@ -301,7 +309,10 @@
     </div>
   </div>
   <button id="openInventoryBtn" class="btn btn-primary btn-history">Инвентарь</button>
-  <button id="openHistoryBtn" class="btn btn-ghost-outline btn-history">Транзакции</button>
+  <div class="profile-btn-row">
+    <button id="openHistoryBtn" class="btn btn-ghost-outline btn-history">Транзакции</button>
+    <button id="openClaimsBtn" class="btn btn-ghost-outline btn-history">Заявки</button>
+  </div>
   <button id="logoutBtn" class="btn btn-ghost">Выйти из аккаунта</button>
 </main>
 
@@ -401,6 +412,45 @@
   </div>
 </main>
 
+<!-- Заявки на получение предметов -->
+<main id="claimsScreen" class="history-screen claims-screen hidden">
+  <p class="menu-title">Заявки</p>
+  <ul id="claimsList" class="claims-list">
+    <li class="history-empty">Загрузка…</li>
+  </ul>
+</main>
+
+<!-- МОДАЛКА: РЕДАКТОР АВАТАРКИ -->
+<div id="avatarEditModal" class="modal-overlay hidden">
+  <div class="modal-panel avatar-edit-panel">
+    <button type="button" class="modal-close" id="avatarEditClose" aria-label="Закрыть">✕</button>
+    <p class="modal-eyebrow">Аватарка профиля</p>
+
+    <div class="avatar-edit-preview-wrap">
+      <div id="avatarEditPreviewRing" class="avatar-edit-preview-ring">
+        <span id="avatarEditPreviewPh" class="icon-user-lg" aria-hidden="true"></span>
+        <img id="avatarEditPreviewImg" class="avatar-edit-preview-img hidden" src="" alt="" />
+      </div>
+      <label for="avatarFileInput" class="avatar-edit-upload-btn">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M12 16V4M12 4 7 9M12 4l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Выбрать фото
+      </label>
+      <input type="file" id="avatarFileInput" accept="image/png,image/jpeg,image/webp" class="hidden" />
+      <p class="avatar-edit-hint">PNG, JPG или WEBP, до 5 МБ</p>
+    </div>
+
+    <p id="avatarEditError" class="spin-error hidden"></p>
+
+    <div class="avatar-edit-footer">
+      <button type="button" id="avatarRemoveBtn" class="btn btn-ghost-outline">Удалить</button>
+      <button type="button" id="avatarSaveBtn" class="btn btn-primary" disabled>Сохранить</button>
+    </div>
+  </div>
+</div>
+
 <footer class="app-footer">
   <p class="app-footer-line">© 2026 GoPvp Все права защищены</p>
   <p class="app-footer-line app-footer-sub">Разработано при поддержке FernieX Prod.</p>
@@ -419,6 +469,7 @@
   </button>
 </nav>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="app.js?v=2"></script>
 <script src="aviator.js?v=2"></script>
