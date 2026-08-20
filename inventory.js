@@ -26,6 +26,7 @@
     exchangeModal: document.getElementById("invExchangeModal"),
     exchangeClose: document.getElementById("invExchangeClose"),
     currencyToggle: document.getElementById("invCurrencyToggle"),
+    exchangePreviewValue: document.getElementById("invExchangePreviewValue"),
     exchangeError: document.getElementById("invExchangeError"),
     exchangeCancel: document.getElementById("invExchangeCancel"),
     exchangeConfirm: document.getElementById("invExchangeConfirm"),
@@ -248,12 +249,22 @@
 
   // ---------- модалка "Обмен предмета" ----------
 
+  function updateExchangePreview() {
+    if (!activeItem || !els.exchangePreviewValue) return;
+    if (activeCurrency === "gp") {
+      els.exchangePreviewValue.innerHTML = `<span class="icon-chance-coin" aria-hidden="true"></span>${activeItem.price_gp} GP`;
+    } else {
+      els.exchangePreviewValue.innerHTML = `⭐ ${activeItem.price_stars} Stars`;
+    }
+  }
+
   function openExchangeModal() {
     if (!activeItem) return;
     activeCurrency = "stars";
     els.currencyToggle.querySelectorAll(".inv-currency-opt").forEach((btn) => {
       btn.classList.toggle("is-active", btn.dataset.currency === activeCurrency);
     });
+    updateExchangePreview();
     els.exchangeError.classList.add("hidden");
     els.exchangeConfirm.disabled = false;
     els.exchangeConfirm.textContent = "Обменять";
@@ -281,6 +292,7 @@
       els.currencyToggle.querySelectorAll(".inv-currency-opt").forEach((b) => {
         b.classList.toggle("is-active", b === btn);
       });
+      updateExchangePreview();
     });
   });
 
