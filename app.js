@@ -37,6 +37,7 @@
     profileScreen: document.getElementById("profileScreen"),
     historyScreen: document.getElementById("historyScreen"),
     inventoryScreen: document.getElementById("inventoryScreen"),
+    claimsScreen: document.getElementById("claimsScreen"),
 
     idForm: document.getElementById("idForm"),
     telegramId: document.getElementById("telegramId"),
@@ -65,9 +66,23 @@
     profileBalance: document.getElementById("profileBalance"),
     openHistoryBtn: document.getElementById("openHistoryBtn"),
     openInventoryBtn: document.getElementById("openInventoryBtn"),
+    openClaimsBtn: document.getElementById("openClaimsBtn"),
     logoutBtn: document.getElementById("logoutBtn"),
 
     historyTableBody: document.getElementById("historyTableBody"),
+    claimsList: document.getElementById("claimsList"),
+
+    profileAvatarPh: document.getElementById("profileAvatarPh"),
+    profileAvatarImg: document.getElementById("profileAvatarImg"),
+    avatarEditBtn: document.getElementById("avatarEditBtn"),
+    avatarEditModal: document.getElementById("avatarEditModal"),
+    avatarEditClose: document.getElementById("avatarEditClose"),
+    avatarEditPreviewPh: document.getElementById("avatarEditPreviewPh"),
+    avatarEditPreviewImg: document.getElementById("avatarEditPreviewImg"),
+    avatarFileInput: document.getElementById("avatarFileInput"),
+    avatarEditError: document.getElementById("avatarEditError"),
+    avatarSaveBtn: document.getElementById("avatarSaveBtn"),
+    avatarRemoveBtn: document.getElementById("avatarRemoveBtn"),
   };
 
   // Общее состояние приложения — доступно и aviator.js через window.AppState
@@ -124,6 +139,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
     [
       "loginScreen", "mainMenuScreen", "casesScreen", "caseDetailScreen", "wheelScreen",
       "aviatorScreen", "blackjackScreen", "profileScreen", "historyScreen", "inventoryScreen",
+      "claimsScreen",
     ].forEach((id) => document.getElementById(id).classList.add("hidden"));
 
     const screenEl = document.getElementById(screenId);
@@ -131,7 +147,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
 
     // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
     // история) — кнопка "назад" видна в самих играх (колесо, самолётик, блэкджек).
-    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen", "caseDetailScreen", "inventoryScreen"].includes(screenId);
+    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen", "caseDetailScreen", "inventoryScreen", "claimsScreen"].includes(screenId);
     els.bottomNav.classList.toggle("hidden", isSubScreen);
     els.backBtn.classList.toggle("hidden", !isSubScreen);
 
@@ -168,6 +184,9 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
     }
     if (screenId === "inventoryScreen" && window.InventoryGame) {
       dataReady = window.InventoryGame.onEnter();
+    }
+    if (screenId === "claimsScreen") {
+      loadClaims();
     }
 
     if (isGameScreen) {
@@ -283,6 +302,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
     els.profileName.textContent = me.username || String(me.telegram_id);
     els.profileId.textContent = `ID: ${me.telegram_id}`;
     els.profileBalance.textContent = me.balance;
+    setAvatarUI(me.avatar_url || null);
 
     navigateTo("mainMenuScreen");
   }
@@ -291,6 +311,21 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
     els.balanceValue.textContent = v;
     els.profileBalance.textContent = v;
   }
+
+  // ---------- аватарка профиля ----------
+
+  function setAvatarUI(url) {
+    if (url) {
+      els.profileAvatarImg.src = url;
+      els.profileAvatarImg.classList.remove("hidden");
+      els.profileAvatarPh.classList.add("hidden");
+    } else {
+      els.profileAvatarImg.removeAttribute("src");
+      els.profileAvatarImg.classList.add("hidden");
+      els.profileAvatarPh.classList.remove("hidden");
+    }
+  }
+  window.AppState.setAvatar = setAvatarUI;
 
   function buildWheel() {
     const n = sections.length;
@@ -464,8 +499,67 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
     }
   }
 
+  // ---------- заявки на получение предметов (профиль) ----------
+
+  const CLAIM_STATUS = {
+    claim_requested: { label: "Ожидание", cls: "is-pending" },
+    claimed: { label: "Выдано", cls: "is-issued" },
+    claim_rejected: { label: "Отклонено", cls: "is-rejected" },
+  };
+
+  function claimItemTitle(item) {
+    if (item.type === "nft") return item.model || item.symbol || item.collection || "NFT";
+    if (item.type === "gift") return item.collection || "Подарок";
+    return "Stars";
+  }
+
+  function formatClaimDate(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  async function loadClaims() {
+    els.claimsList.innerHTML = `<li class="history-empty">Загрузка…</li>`;
+    try {
+      const data = await api("/api/inventory/claims", { auth: true });
+      const claims = data.claims || [];
+      if (!claims.length) {
+        els.claimsList.innerHTML = `<li class="history-empty">Заявок пока нет — нажмите «Получить» на предмете в инвентаре.</li>`;
+        return;
+      }
+      els.claimsList.innerHTML = "";
+      const rows = await Promise.all(claims.map(buildClaimRow));
+      const fragment = document.createDocumentFragment();
+      rows.forEach((li) => fragment.appendChild(li));
+      els.claimsList.appendChild(fragment);
+    } catch (err) {
+      els.claimsList.innerHTML = `<li class="history-empty">${escapeHtml(err.message || "Не удалось загрузить заявки")}</li>`;
+    }
+  }
+
+  async function buildClaimRow(claim) {
+    const li = document.createElement("li");
+    li.className = "claim-row";
+    const iconSrc = await staticIconFor(claim);
+    const statusInfo = CLAIM_STATUS[claim.status] || { label: claim.status, cls: "is-pending" };
+    li.innerHTML = `
+      <span class="claim-icon-wrap">
+        ${iconSrc ? `<img class="claim-icon" src="${iconSrc}" alt="" loading="lazy" />` : `<span class="claim-icon-ph">✦</span>`}
+      </span>
+      <span class="claim-info">
+        <span class="claim-name">${escapeHtml(claimItemTitle(claim))}</span>
+        <span class="claim-date">${formatClaimDate(claim.requested_at)}</span>
+      </span>
+      <span class="claim-status-badge ${statusInfo.cls}">${escapeHtml(statusInfo.label)}</span>
+    `;
+    return li;
+  }
+
   els.openHistoryBtn.addEventListener("click", () => navigateTo("historyScreen"));
   els.openInventoryBtn.addEventListener("click", () => navigateTo("inventoryScreen"));
+  els.openClaimsBtn.addEventListener("click", () => navigateTo("claimsScreen"));
 
   // ---------- API helper (общий, используется и aviator.js) ----------
 
@@ -646,6 +740,143 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
   function hideGameLoader() {
     els.preloader.classList.add("preloader-out");
   }
+
+  // ---------- редактор аватарки ----------
+  // Файл грузится напрямую из браузера в Supabase Storage (бакет
+  // useravatars) через supabase-js с публичным anon-ключом — так же, как
+  // уже был подготовлен window.SUPABASE_URL/ANON_KEY в config.js. На бэкенд
+  // уходит только готовая публичная ссылка (см. /api/profile/avatar),
+  // сам файл через наш API не проходит.
+  const AVATAR_BUCKET = "useravatars";
+  const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
+  let supabaseClient = null;
+  function getSupabaseClient() {
+    if (!supabaseClient && window.supabase && window.SUPABASE_URL && window.SUPABASE_ANON_KEY) {
+      supabaseClient = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+    }
+    return supabaseClient;
+  }
+
+  let pendingAvatarFile = null;
+
+  function showAvatarError(msg) {
+    els.avatarEditError.textContent = msg;
+    els.avatarEditError.classList.remove("hidden");
+  }
+  function hideAvatarError() {
+    els.avatarEditError.classList.add("hidden");
+  }
+
+  function setAvatarPreview(url) {
+    if (url) {
+      els.avatarEditPreviewImg.src = url;
+      els.avatarEditPreviewImg.classList.remove("hidden");
+      els.avatarEditPreviewPh.classList.add("hidden");
+    } else {
+      els.avatarEditPreviewImg.removeAttribute("src");
+      els.avatarEditPreviewImg.classList.add("hidden");
+      els.avatarEditPreviewPh.classList.remove("hidden");
+    }
+  }
+
+  function openAvatarEditModal() {
+    pendingAvatarFile = null;
+    hideAvatarError();
+    els.avatarFileInput.value = "";
+    els.avatarSaveBtn.disabled = true;
+    els.avatarSaveBtn.textContent = "Сохранить";
+    setAvatarPreview(els.profileAvatarImg.classList.contains("hidden") ? null : els.profileAvatarImg.src);
+
+    els.avatarEditModal.classList.remove("hidden");
+    void els.avatarEditModal.offsetWidth;
+    els.avatarEditModal.classList.add("is-open");
+  }
+
+  function closeAvatarEditModal() {
+    els.avatarEditModal.classList.remove("is-open");
+    window.setTimeout(() => els.avatarEditModal.classList.add("hidden"), 200);
+  }
+
+  els.avatarEditBtn.addEventListener("click", openAvatarEditModal);
+  els.avatarEditClose.addEventListener("click", closeAvatarEditModal);
+  els.avatarEditModal.addEventListener("click", (e) => {
+    if (e.target === els.avatarEditModal) closeAvatarEditModal();
+  });
+
+  els.avatarFileInput.addEventListener("change", () => {
+    hideAvatarError();
+    const file = els.avatarFileInput.files && els.avatarFileInput.files[0];
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      showAvatarError("Поддерживаются только PNG, JPG или WEBP");
+      els.avatarFileInput.value = "";
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      showAvatarError("Файл больше 5 МБ");
+      els.avatarFileInput.value = "";
+      return;
+    }
+    pendingAvatarFile = file;
+    els.avatarSaveBtn.disabled = false;
+
+    const reader = new FileReader();
+    reader.onload = () => setAvatarPreview(reader.result);
+    reader.readAsDataURL(file);
+  });
+
+  els.avatarSaveBtn.addEventListener("click", async () => {
+    if (!pendingAvatarFile) return;
+    const client = getSupabaseClient();
+    if (!client) {
+      showAvatarError("Загрузка аватарок временно недоступна");
+      return;
+    }
+    hideAvatarError();
+    els.avatarSaveBtn.disabled = true;
+    els.avatarSaveBtn.textContent = "Загружаем…";
+
+    try {
+      const ext = (pendingAvatarFile.name.split(".").pop() || "jpg").toLowerCase();
+      const path = `${window.AppState.telegramId}/${Date.now()}.${ext}`;
+
+      const { error: uploadError } = await client.storage
+        .from(AVATAR_BUCKET)
+        .upload(path, pendingAvatarFile, { upsert: true, contentType: pendingAvatarFile.type });
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = client.storage.from(AVATAR_BUCKET).getPublicUrl(path);
+      const avatarUrl = publicUrlData.publicUrl;
+
+      await api("/api/profile/avatar", { method: "POST", auth: true, body: { avatar_url: avatarUrl } });
+
+      setAvatarUI(avatarUrl);
+      closeAvatarEditModal();
+    } catch (err) {
+      showAvatarError(err.message || "Не удалось загрузить аватарку");
+    } finally {
+      els.avatarSaveBtn.disabled = false;
+      els.avatarSaveBtn.textContent = "Сохранить";
+    }
+  });
+
+  els.avatarRemoveBtn.addEventListener("click", async () => {
+    hideAvatarError();
+    els.avatarRemoveBtn.disabled = true;
+    try {
+      await api("/api/profile/avatar", { method: "DELETE", auth: true });
+      setAvatarUI(null);
+      setAvatarPreview(null);
+      pendingAvatarFile = null;
+      els.avatarFileInput.value = "";
+      els.avatarSaveBtn.disabled = true;
+    } catch (err) {
+      showAvatarError(err.message || "Не удалось удалить аватарку");
+    } finally {
+      els.avatarRemoveBtn.disabled = false;
+    }
+  });
 
   // ---------- boot ----------
   // Заливка идёт ПАРАЛЛЕЛЬНО с проверкой сессии — пока грузится экран,
