@@ -788,7 +788,7 @@ input, select, textarea {
 .icon-home::before {
   content: "";
   position: absolute;
-  top: -1px;
+  top: -6px;
   left: 50%;
   transform: translateX(-50%);
   border-left: 9px solid transparent;
@@ -1563,6 +1563,7 @@ input, select, textarea {
 }
 
 .profile-avatar {
+  position: relative;
   width: 64px;
   height: 64px;
   border-radius: 50%;
@@ -1573,6 +1574,34 @@ input, select, textarea {
   font-size: 28px;
   margin-bottom: 6px;
 }
+
+.profile-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar-edit-btn {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  background: var(--gold);
+  color: #221e3a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+.avatar-edit-btn:active { transform: scale(0.9); }
+.avatar-edit-btn svg { width: 12px; height: 12px; }
 
 .profile-name { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin: 0; }
 .profile-id { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-dim); margin: 0 0 10px; }
@@ -1588,6 +1617,14 @@ input, select, textarea {
 }
 
 .btn-history { width: 100%; }
+
+.profile-btn-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.profile-btn-row .btn-history { width: 100%; }
 
 /* ---------- История игр ---------- */
 
@@ -1640,28 +1677,102 @@ input, select, textarea {
 .history-table .change-positive { color: var(--green); }
 .history-table .change-negative { color: var(--red); }
 
-/* ---------- Нижняя навигация ---------- */
+/* ---------- Заявки на получение предметов ---------- */
 
-.app-footer {
-  position: relative;
-  z-index: 1;
-  max-width: 720px;
-  margin: 8px auto 0;
-  padding: 10px 20px 4px;
-  text-align: center;
-}
-
-.app-footer-line {
+.claims-list {
+  list-style: none;
   margin: 0;
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-dim);
-  opacity: 0.55;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.app-footer-sub {
-  margin-top: 2px;
+.claim-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
 }
+
+.claim-icon-wrap {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(160deg, #342f54, #221e3a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.claim-icon {
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
+}
+
+.claim-icon-ph {
+  font-size: 16px;
+  color: var(--text-dim);
+}
+
+.claim-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.claim-name {
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claim-date {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.claim-status-badge {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.claim-status-badge.is-pending {
+  background: rgba(255, 200, 87, 0.14);
+  color: var(--gold);
+  border: 1px solid rgba(255, 200, 87, 0.3);
+}
+
+.claim-status-badge.is-issued {
+  background: rgba(51, 214, 159, 0.14);
+  color: var(--green);
+  border: 1px solid rgba(51, 214, 159, 0.3);
+}
+
+.claim-status-badge.is-rejected {
+  background: rgba(255, 92, 119, 0.14);
+  color: var(--red);
+  border: 1px solid rgba(255, 92, 119, 0.3);
+}
+
+/* ---------- Нижняя навигация ---------- */
 
 .bottom-nav {
   position: fixed;
@@ -2613,44 +2724,84 @@ input, select, textarea {
 }
 .inv-currency-icon { font-size: 15px; }
 
-.inv-exchange-preview {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 13px 16px;
-  margin-bottom: 14px;
-  border-radius: 14px;
-  border: 1px solid var(--panel-line);
-  background: linear-gradient(135deg, rgba(123,97,255,0.14), rgba(34,30,58,0.5));
-}
-
-.inv-exchange-preview-label {
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
-.inv-exchange-preview-value {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.inv-exchange-preview-value .icon-chance-coin {
-  width: 16px;
-  height: 16px;
-}
-
 .inv-exchange-footer {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 .inv-exchange-footer .btn { margin-top: 0; width: 100%; }
+
+/* ---------- модалка "Аватарка профиля" ---------- */
+
+.avatar-edit-panel { text-align: center; }
+
+.avatar-edit-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+
+.avatar-edit-preview-ring {
+  position: relative;
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--violet), #9b7bff);
+  box-shadow: 0 0 0 4px var(--bg-soft), 0 0 0 5px var(--panel-line), 0 18px 30px -14px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+
+.avatar-edit-preview-ring .icon-user-lg { width: 46px; height: 46px; }
+.avatar-edit-preview-ring .icon-user-lg::before { width: 20px; height: 20px; }
+.avatar-edit-preview-ring .icon-user-lg::after { width: 44px; height: 24px; }
+
+.avatar-edit-preview-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-edit-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 20px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  border: 1px solid var(--panel-line);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+}
+.avatar-edit-upload-btn:active { transform: scale(0.97); }
+.avatar-edit-upload-btn:hover { border-color: var(--violet); }
+.avatar-edit-upload-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+.avatar-edit-hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.avatar-edit-panel .spin-error { margin: 4px 0 0; }
+
+.avatar-edit-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+.avatar-edit-footer .btn { margin-top: 0; width: 100%; }
 
 /* ---------- toast-уведомления ---------- */
 
