@@ -65,12 +65,16 @@
 </main>
 
 <!-- ЭКРАН КЕЙСОВ -->
-<!-- Карточки кейсов рендерятся динамически в cases.js на основе ответа
-     сервера GET /api/cases (список всех кейсов из словаря CASES в
-     api_server.py) — здесь только пустой контейнер. -->
 <main id="casesScreen" class="cases-screen hidden">
   <p class="menu-title">Кейсы</p>
-  <div class="case-grid" id="caseGrid"></div>
+  <div class="case-grid" id="caseGrid">
+    <button class="case-card" id="caseCardBtn" data-case="gopvp_green">
+      <span class="case-card-badge">Новое</span>
+      <img class="case-card-img" src="case_icon/Gopvp_greencase.png" alt="Gopvp Green Case" />
+      <span class="case-card-price"><span class="icon-chance-coin" aria-hidden="true"></span><span id="caseListPrice">30</span></span>
+      <span class="case-card-name">Стартовый кейс</span>
+    </button>
+  </div>
 </main>
 
 <!-- ГЛАВНОЕ МЕНЮ -->
@@ -301,9 +305,72 @@
       <span class="balance-unit">шанс.</span>
     </div>
   </div>
-  <button id="openHistoryBtn" class="btn btn-primary btn-history">История игр</button>
+  <button id="openInventoryBtn" class="btn btn-primary btn-history">Инвентарь</button>
+  <button id="openHistoryBtn" class="btn btn-ghost-outline btn-history">История игр</button>
   <button id="logoutBtn" class="btn btn-ghost">Выйти из аккаунта</button>
 </main>
+
+<!-- ЭКРАН ИНВЕНТАРЯ -->
+<main id="inventoryScreen" class="cases-screen inventory-screen hidden">
+  <p class="menu-title">Инвентарь</p>
+
+  <div id="invEmpty" class="inv-empty hidden">
+    <span class="inv-empty-icon" aria-hidden="true">🎒</span>
+    <p>Пока пусто. Открывайте кейсы и получайте предметы — они появятся здесь.</p>
+  </div>
+
+  <div id="invGrid" class="inv-grid"></div>
+</main>
+
+<!-- МОДАЛКА: УПРАВЛЕНИЕ ПРЕДМЕТОМ -->
+<div id="invManageModal" class="modal-overlay hidden">
+  <div class="modal-panel inv-manage-panel">
+    <button type="button" class="modal-close" id="invManageClose" aria-label="Закрыть">✕</button>
+    <p class="modal-eyebrow">Управление предметом</p>
+
+    <div class="inv-manage-icon-wrap">
+      <div id="invManageIconBg" class="inv-manage-icon-bg">
+        <img id="invManageIcon" class="inv-manage-icon" src="" alt="" />
+      </div>
+    </div>
+    <p id="invManageName" class="inv-manage-name">—</p>
+
+    <div class="inv-manage-actions">
+      <button type="button" id="invExchangeBtn" class="btn btn-primary inv-action-btn">Обменять</button>
+      <button type="button" id="invClaimBtn" class="btn btn-ghost-outline inv-action-btn">Получить</button>
+    </div>
+
+    <div id="invManageRows" class="inv-manage-rows"></div>
+  </div>
+</div>
+
+<!-- МОДАЛКА: ОБМЕН ПРЕДМЕТА -->
+<div id="invExchangeModal" class="modal-overlay hidden">
+  <div class="modal-panel inv-exchange-panel">
+    <button type="button" class="modal-close" id="invExchangeClose" aria-label="Закрыть">✕</button>
+    <p class="modal-title">Обмен предмета</p>
+    <p class="modal-question">1. На что обмен?</p>
+
+    <div class="inv-currency-toggle" id="invCurrencyToggle">
+      <button type="button" class="inv-currency-opt is-active" data-currency="stars">
+        <span class="inv-currency-icon">⭐</span> Stars
+      </button>
+      <button type="button" class="inv-currency-opt" data-currency="gp">
+        <span class="icon-chance-coin" aria-hidden="true"></span> Шансы
+      </button>
+    </div>
+
+    <p id="invExchangeError" class="spin-error hidden"></p>
+
+    <div class="inv-exchange-footer">
+      <button type="button" id="invExchangeCancel" class="btn btn-ghost-outline">Отмена</button>
+      <button type="button" id="invExchangeConfirm" class="btn btn-primary">Обменять</button>
+    </div>
+  </div>
+</div>
+
+<!-- ТОСТ-УВЕДОМЛЕНИЯ -->
+<div id="toastStack" class="toast-stack" aria-live="polite"></div>
 
 <!-- ИСТОРИЯ ИГР -->
 <main id="historyScreen" class="history-screen hidden">
@@ -342,7 +409,8 @@
 <script src="config.js"></script>
 <script src="app.js?v=2"></script>
 <script src="aviator.js?v=2"></script>
-<script src="cases.js?v=3"></script>
+<script src="cases.js?v=2"></script>
 <script src="blackjack.js?v=2"></script>
+<script src="inventory.js?v=1"></script>
 </body>
 </html>
