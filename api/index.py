@@ -54,6 +54,11 @@ if not DATABASE_URL:
 
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "*")
 
+# Секрет для служебных /api/admin/* ручек (выдача предметов в инвентарь
+# и т.п.) — задаётся в Vercel Dashboard. Если не задан, admin-ручки просто
+# отвечают 503, ничего не ломая на обычных пользовательских эндпоинтах.
+ADMIN_SECRET = os.environ.get("ADMIN_SECRET")
+
 CODE_TTL_SECONDS = 5 * 60
 SESSION_TTL_SECONDS = 30 * 24 * 3600  # 30 дней
 CODE_RESEND_COOLDOWN = 30  # сек между повторными кодами
@@ -75,53 +80,34 @@ WHEEL_SECTIONS = [
 ]
 assert sum(s["weight"] for s in WHEEL_SECTIONS) == 1000
 
-# ---------- содержимое кейсов ----------
-# Несколько кейсов, каждый со своим id, названием, ценой и своим набором
-# наград. id — то, что фронт передаёт в query-параметре ?case_id=...
-# (см. index.html: data-case="..." на карточке кейса).
-#
-# У каждой награды: label, value (шансы, зачисляются игроку), вес
-# (промилле, сумма весов внутри ОДНОГО кейса должна быть = 1000),
-# rarity — только для цвета карточки на фронте.
-CASES = {
-    "gopvp_green": {
-        "name": "Green Case",
-        "cost": 200,
-        "items": [
-            {"label": "Пусто",      "value": 0,   "kind": "empty", "weight": 350, "rarity": "common"},
-            {"label": "10 шансов",  "value": 10,  "kind": "cash",  "weight": 250, "rarity": "common"},
-            {"label": "20 шансов",  "value": 20,  "kind": "cash",  "weight": 180, "rarity": "uncommon"},
-            {"label": "35 шансов",  "value": 35,  "kind": "cash",  "weight": 120, "rarity": "rare"},
-            {"label": "60 шансов",  "value": 60,  "kind": "cash",  "weight": 60,  "rarity": "epic"},
-            {"label": "100 шансов", "value": 100, "kind": "cash",  "weight": 30,  "rarity": "legendary"},
-            {"label": "250 шансов", "value": 250, "kind": "cash",  "weight": 9,   "rarity": "mythic"},
-            {"label": "500 шансов", "value": 500, "kind": "cash",  "weight": 1,   "rarity": "mythic"},
-        ],
-    },
-    "gopvp_beggar": {
-        "name": "Beggar Case",
-        "cost": 150,
-        "items": [
-            {"label": "Пусто",     "value": 0,   "kind": "empty", "weight": 500, "rarity": "common"},
-            {"label": "5 шансов",  "value": 5,   "kind": "cash",  "weight": 260, "rarity": "common"},
-            {"label": "10 шансов", "value": 10,  "kind": "cash",  "weight": 140, "rarity": "uncommon"},
-            {"label": "20 шансов", "value": 20,  "kind": "cash",  "weight": 70,  "rarity": "rare"},
-            {"label": "40 шансов", "value": 40,  "kind": "cash",  "weight": 24,  "rarity": "epic"},
-            {"label": "80 шансов", "value": 80,  "kind": "cash",  "weight": 5,   "rarity": "legendary"},
-            {"label": "150 шансов","value": 150, "kind": "cash",  "weight": 1,   "rarity": "mythic"},
-        ],
-    },
-}
-for _cid, _c in CASES.items():
-    _s = sum(i["weight"] for i in _c["items"])
-    assert _s == 1000, f"Веса наград кейса '{_cid}' должны суммироваться в 1000, сейчас {_s}"
+# ---------- содержимое кейса ----------
+# label, value (шансы, зачисляются игроку), вес (промилле, сумма = 1000), rarity — только для цвета карточки на фронте
+CASE_COST = 200
+CASE_ITEMS = [
+    {"label": "Пусто",      "value": 0,   "kind": "empty", "weight": 350, "rarity": "common"},
+    {"label": "10 шансов",  "value": 10,  "kind": "cash",  "weight": 250, "rarity": "common"},
+    {"label": "20 шансов",  "value": 20,  "kind": "cash",  "weight": 180, "rarity": "uncommon"},
+    {"label": "35 шансов",  "value": 35,  "kind": "cash",  "weight": 120, "rarity": "rare"},
+    {"label": "60 шансов",  "value": 60,  "kind": "cash",  "weight": 60,  "rarity": "epic"},
+    {"label": "100 шансов", "value": 100, "kind": "cash",  "weight": 30,  "rarity": "legendary"},
+    {"label": "250 шансов", "value": 250, "kind": "cash",  "weight": 9,   "rarity": "mythic"},
+    {"label": "500 шансов", "value": 500, "kind": "cash",  "weight": 1,   "rarity": "mythic"},
+]
+assert sum(i["weight"] for i in CASE_ITEMS) == 1000
+
+# Используется, чтобы получить читаемый label для предмета из shop_items,
+# когда он выпадает в кейсе (см. build_case_pool ниже).
+ITEM_TYPE_LABELS = {"nft": "NFT", "gift": "Подарок", "stars": "Stars"}
 
 
-def get_case_or_404(case_id: str) -> dict:
-    case = CASES.get(case_id)
-    if not case:
-        raise HTTPException(status_code=404, detail="Кейс не найден")
-    return case
+def _item_display_label(type_: str, collection, model, symbol) -> str:
+    t = (type_ or "").lower()
+    if t == "nft":
+        return model or symbol or collection or "NFT"
+    if t == "gift":
+        return collection or "Подарок"
+    return "Stars"
+
 
 bot = Bot(token=BOT_TOKEN)
 
@@ -236,6 +222,90 @@ def ensure_tables():
                 payout INTEGER
             )
         """)
+
+        # ---------- Инвентарь (NFT / подарки / Stars) ----------
+        #
+        # shop_items — каталог "витрины": сюда картинки и параметры
+        # предметов добавляются вручную через Supabase Table Editor (или
+        # позже — отдельной админкой). Именно эту таблицу имел в виду
+        # запрос "все картинки будут в Supabase в специальной таблице".
+        #
+        # Поля соответствуют примерам из ТЗ:
+        #   type            — 'nft' | 'gift' | 'stars'
+        #   collection      — например "Snake Box" / "Teddy"
+        #   model           — например "Fuchsia" (для NFT)
+        #   background      — CSS-совместимое имя цвета, например "Aquamarine",
+        #                     "Tomato" — эти слова сами по себе валидные CSS-цвета,
+        #                     поэтому фронт может использовать их напрямую.
+        #   symbol          — например "Pumpkin Coach"
+        #   icon_png/icon_gif — если одно из полей пустое, используется другое
+        #   background_png  — картинка-подложка карточки (необязательна)
+        #   price_stars / price_gp — цены в двух валютах приложения
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS shop_items (
+                id SERIAL PRIMARY KEY,
+                type TEXT NOT NULL,
+                collection TEXT,
+                model TEXT,
+                background TEXT,
+                symbol TEXT,
+                icon_png TEXT,
+                icon_gif TEXT,
+                background_png TEXT,
+                price_stars INTEGER NOT NULL DEFAULT 0,
+                price_gp INTEGER NOT NULL DEFAULT 0,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+
+        # user_inventory — то, чем реально владеет игрок. Поля предмета
+        # снимаются "снимком" (копируются) в момент выдачи — так обмен и
+        # история не ломаются, даже если каталожную запись потом изменят
+        # или удалят в Supabase.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS user_inventory (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                item_id INTEGER REFERENCES shop_items(id) ON DELETE SET NULL,
+                type TEXT NOT NULL,
+                collection TEXT,
+                model TEXT,
+                background TEXT,
+                symbol TEXT,
+                icon_png TEXT,
+                icon_gif TEXT,
+                background_png TEXT,
+                price_stars INTEGER NOT NULL DEFAULT 0,
+                price_gp INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL DEFAULT 'admin',
+                status TEXT NOT NULL DEFAULT 'owned',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_user_inventory_user ON user_inventory (user_id, status)")
+
+        # case_pool — какие ПРЕДМЕТЫ (не шансы) могут выпасть из кейса.
+        # Денежные призы (CASE_ITEMS) остаются захардкожены в коде как и
+        # были, а вот выпадение NFT/подарков/Stars из shop_items настраивается
+        # прямо здесь: чтобы добавить предмет в дроп кейса, admin добавляет
+        # строку в эту таблицу (через Supabase Table Editor) с item_id
+        # (id из shop_items) и весом. Вес — в тех же "промилле", что и у
+        # CASE_ITEMS: суммарный вес пула = сумма весов CASE_ITEMS (1000) +
+        # сумма весов активных строк отсюда, т.е. чем больше вес строки,
+        # тем реальнее шанс выпадения (общий тираж роли пересчитывается
+        # каждый раз, привязки к ровно 1000 больше нет).
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS case_pool (
+                id SERIAL PRIMARY KEY,
+                case_key TEXT NOT NULL DEFAULT 'gopvp_green',
+                item_id INTEGER NOT NULL REFERENCES shop_items(id) ON DELETE CASCADE,
+                weight INTEGER NOT NULL,
+                rarity TEXT NOT NULL DEFAULT 'legendary',
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """)
         cur.close()
     _tables_ready = True
 
@@ -267,6 +337,15 @@ class BlackjackBetBody(BaseModel):
 
 class BlackjackHandBody(BaseModel):
     hand_id: str
+
+
+class InventoryExchangeBody(BaseModel):
+    currency: str = Field(pattern="^(gp|stars)$")
+
+
+class AdminGrantBody(BaseModel):
+    telegram_id: int
+    item_id: int
 
 
 # ---------- авторизация ----------
@@ -426,15 +505,66 @@ def roll_section() -> tuple[int, dict]:
     return len(WHEEL_SECTIONS) - 1, WHEEL_SECTIONS[-1]
 
 
-def roll_case_item(case: dict) -> tuple[int, dict]:
-    items = case["items"]
-    roll = random.randint(1, 1000)
+def build_case_pool(cur) -> list:
+    """Собирает единый пул кейса: денежные призы (CASE_ITEMS, захардкожены)
+    + предметы (case_pool -> shop_items, настраиваются в Supabase). Порядок
+    ДЕТЕРМИНИРОВАН (сначала CASE_ITEMS по порядку объявления, потом строки
+    case_pool по id) — фронт получает точно такой же список и по нему же
+    строит ленту прокрутки, поэтому item_index из /api/cases/open обязан
+    указывать на ту же позицию, что и в /api/cases."""
+    pool = []
+    for it in CASE_ITEMS:
+        pool.append({
+            "kind": "cash",
+            "label": it["label"],
+            "value": it["value"],
+            "weight": it["weight"],
+            "rarity": it["rarity"],
+        })
+
+    cur.execute("""
+        SELECT cp.weight, cp.rarity, si.id, si.type, si.collection, si.model,
+               si.background, si.symbol, si.icon_png, si.icon_gif, si.background_png,
+               si.price_stars, si.price_gp
+        FROM case_pool cp
+        JOIN shop_items si ON si.id = cp.item_id
+        WHERE cp.is_active = TRUE AND si.is_active = TRUE
+        ORDER BY cp.id ASC
+    """)
+    for row in cur.fetchall():
+        (weight, rarity, item_id, type_, collection, model, background, symbol,
+         icon_png, icon_gif, background_png, price_stars, price_gp) = row
+        pool.append({
+            "kind": "item",
+            "label": _item_display_label(type_, collection, model, symbol),
+            "weight": weight,
+            "rarity": rarity,
+            "item": {
+                "item_id": item_id,
+                "type": type_,
+                "collection": collection,
+                "model": model,
+                "background": background,
+                "symbol": symbol,
+                "icon_png": icon_png,
+                "icon_gif": icon_gif,
+                "background_png": background_png,
+                "price_stars": price_stars,
+                "price_gp": price_gp,
+            },
+        })
+    return pool
+
+
+def roll_case_entry(pool: list) -> tuple[int, dict]:
+    total_weight = sum(p["weight"] for p in pool)
+    roll = random.randint(1, total_weight)
     acc = 0
-    for idx, item in enumerate(items):
-        acc += item["weight"]
+    for idx, entry in enumerate(pool):
+        acc += entry["weight"]
         if roll <= acc:
-            return idx, item
-    return len(items) - 1, items[-1]
+            return idx, entry
+    return len(pool) - 1, pool[-1]
 
 
 @app.post("/api/spin")
@@ -505,54 +635,74 @@ async def spin(body: SpinBody, token: str = Depends(bearer_token)):
 
 
 @app.get("/api/cases")
-async def list_cases(token: str = Depends(bearer_token)):
-    """Список всех доступных кейсов (для экрана списка кейсов)."""
+async def get_cases(token: str = Depends(bearer_token)):
     with db() as conn:
         require_session(conn, token)
-    return {
-        "cases": [
-            {"id": cid, "name": c["name"], "cost": c["cost"]}
-            for cid, c in CASES.items()
-        ]
-    }
+        cur = conn.cursor()
+        pool = build_case_pool(cur)
+        cur.close()
+
+    items = []
+    for p in pool:
+        entry = {"kind": p["kind"], "label": p["label"], "weight": p["weight"], "rarity": p["rarity"]}
+        if p["kind"] == "cash":
+            entry["value"] = p["value"]
+        else:
+            entry["item"] = p["item"]
+        items.append(entry)
+
+    return {"cost": CASE_COST, "items": items}
 
 
-@app.get("/api/cases/{case_id}")
-async def get_case(case_id: str, token: str = Depends(bearer_token)):
-    """Содержимое (таблица шансов) конкретного кейса."""
-    with db() as conn:
-        require_session(conn, token)
-    case = get_case_or_404(case_id)
-    return {
-        "id": case_id,
-        "name": case["name"],
-        "cost": case["cost"],
-        "items": [
-            {"label": i["label"], "value": i["value"], "weight": i["weight"], "rarity": i["rarity"]}
-            for i in case["items"]
-        ],
-    }
-
-
-@app.post("/api/cases/{case_id}/open")
-async def open_case(case_id: str, token: str = Depends(bearer_token)):
-    case = get_case_or_404(case_id)
-    cost = case["cost"]
-    index, item = roll_case_item(case)
-    net = item["value"] - cost
-
+@app.post("/api/cases/open")
+async def open_case(token: str = Depends(bearer_token)):
     with db() as conn:
         user = require_session(conn, token)
         user_id, username = user["user_id"], user["username"]
-
         cur = conn.cursor()
+
+        pool = build_case_pool(cur)
+        index, entry = roll_case_entry(pool)
+
         cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
         balance = row[0] if row else 0
-        if balance < cost:
+        if balance < CASE_COST:
             cur.close()
             raise HTTPException(status_code=400, detail="Недостаточно шансов на балансе")
 
+        if entry["kind"] == "cash":
+            net = entry["value"] - CASE_COST
+            new_balance = balance + net
+            cur.execute("""
+                INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    balance = %s,
+                    username = excluded.username
+            """, (user_id, username, new_balance, new_balance))
+
+            cur.execute("""
+                INSERT INTO game_rounds
+                    (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
+                VALUES (%s, 'case', %s, %s, %s, %s, %s)
+            """, (user_id, CASE_COST, entry["label"], entry["value"], net, new_balance))
+            cur.close()
+
+            return {
+                "ok": True,
+                "kind": "cash",
+                "item_index": index,
+                "label": entry["label"],
+                "value": entry["value"],
+                "rarity": entry["rarity"],
+                "cost": CASE_COST,
+                "new_balance": new_balance,
+            }
+
+        # entry["kind"] == "item" — приз уходит не деньгами, а предметом
+        # в инвентарь; ставка (стоимость кейса) всё равно списывается.
+        item = entry["item"]
+        net = -CASE_COST
         new_balance = balance + net
         cur.execute("""
             INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
@@ -562,22 +712,251 @@ async def open_case(case_id: str, token: str = Depends(bearer_token)):
         """, (user_id, username, new_balance, new_balance))
 
         cur.execute("""
+            INSERT INTO user_inventory
+                (user_id, item_id, type, collection, model, background, symbol,
+                 icon_png, icon_gif, background_png, price_stars, price_gp, source, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'case', 'owned')
+            RETURNING id, created_at
+        """, (user_id, item["item_id"], item["type"], item["collection"], item["model"],
+              item["background"], item["symbol"], item["icon_png"], item["icon_gif"],
+              item["background_png"], item["price_stars"], item["price_gp"]))
+        inv_id, created_at = cur.fetchone()
+
+        cur.execute("""
             INSERT INTO game_rounds
                 (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
-            VALUES (%s, 'case', %s, %s, %s, %s, %s)
-        """, (user_id, cost, f"[{case['name']}] {item['label']}", item["value"], net, new_balance))
+            VALUES (%s, 'case', %s, %s, 0, %s, %s)
+        """, (user_id, CASE_COST, entry["label"], net, new_balance))
         cur.close()
 
+        new_item = {
+            "id": inv_id,
+            "item_id": item["item_id"],
+            "type": item["type"],
+            "collection": item["collection"],
+            "model": item["model"],
+            "background": item["background"],
+            "symbol": item["symbol"],
+            "icon_png": item["icon_png"],
+            "icon_gif": item["icon_gif"],
+            "background_png": item["background_png"],
+            "price_stars": item["price_stars"],
+            "price_gp": item["price_gp"],
+            "status": "owned",
+            "acquired_at": created_at,
+        }
+
+        return {
+            "ok": True,
+            "kind": "item",
+            "item_index": index,
+            "label": entry["label"],
+            "rarity": entry["rarity"],
+            "cost": CASE_COST,
+            "new_balance": new_balance,
+            "new_item": new_item,
+        }
+
+
+def _serialize_inventory_row(row) -> dict:
+    (inv_id, item_id, type_, collection, model, background, symbol,
+     icon_png, icon_gif, background_png, price_stars, price_gp,
+     status, created_at) = row
     return {
-        "ok": True,
-        "case_id": case_id,
-        "item_index": index,
-        "label": item["label"],
-        "value": item["value"],
-        "rarity": item["rarity"],
-        "cost": cost,
-        "new_balance": new_balance,
+        "id": inv_id,
+        "item_id": item_id,
+        "type": type_,
+        "collection": collection,
+        "model": model,
+        "background": background,
+        "symbol": symbol,
+        "icon_png": icon_png,
+        "icon_gif": icon_gif,
+        "background_png": background_png,
+        "price_stars": price_stars,
+        "price_gp": price_gp,
+        "status": status,
+        "acquired_at": created_at,
     }
+
+
+INVENTORY_COLUMNS = """
+    id, item_id, type, collection, model, background, symbol,
+    icon_png, icon_gif, background_png, price_stars, price_gp,
+    status, created_at
+"""
+
+
+@app.get("/api/inventory")
+async def get_inventory(token: str = Depends(bearer_token)):
+    """Инвентарь текущего игрока — только предметы в статусе 'owned'
+    (обменянные/выведенные из витрины не показываются)."""
+    with db() as conn:
+        user = require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute(f"""
+            SELECT {INVENTORY_COLUMNS} FROM user_inventory
+            WHERE user_id = %s AND status = 'owned'
+            ORDER BY id DESC
+        """, (user["user_id"],))
+        rows = cur.fetchall()
+        cur.close()
+    return {"items": [_serialize_inventory_row(r) for r in rows]}
+
+
+@app.post("/api/inventory/{inventory_id}/exchange")
+async def exchange_inventory_item(inventory_id: int, body: InventoryExchangeBody, token: str = Depends(bearer_token)):
+    """Обмен предмета:
+      - currency == 'gp'    -> предмет списывается, price_gp зачисляется на баланс сразу
+      - currency == 'stars' -> предмет списывается, взамен в инвентарь добавляется
+                                предмет типа 'stars' (иконка берётся из каталожного
+                                шаблона type='stars', если такой есть, иначе — из
+                                иконки самого обмениваемого предмета), стоимость
+                                которого равна price_stars исходного предмета.
+    """
+    with db() as conn:
+        user = require_session(conn, token)
+        user_id, username = user["user_id"], user["username"]
+        cur = conn.cursor()
+
+        cur.execute(f"""
+            SELECT {INVENTORY_COLUMNS} FROM user_inventory
+            WHERE id = %s AND user_id = %s AND status = 'owned'
+            FOR UPDATE
+        """, (inventory_id, user_id))
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            raise HTTPException(status_code=404, detail="Предмет не найден в инвентаре")
+        item = _serialize_inventory_row(row)
+
+        if body.currency == "gp":
+            cur.execute("UPDATE user_inventory SET status = 'exchanged_gp' WHERE id = %s", (inventory_id,))
+
+            cur.execute("SELECT balance FROM user_chances WHERE user_id = %s", (user_id,))
+            bal_row = cur.fetchone()
+            balance = bal_row[0] if bal_row else 0
+            new_balance = balance + item["price_gp"]
+            cur.execute("""
+                INSERT INTO user_chances (user_id, username, balance) VALUES (%s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    balance = %s,
+                    username = excluded.username
+            """, (user_id, username, new_balance, new_balance))
+
+            cur.execute("""
+                INSERT INTO game_rounds
+                    (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
+                VALUES (%s, 'exchange', 0, %s, %s, %s, %s)
+            """, (user_id, f"Обмен: {item['collection'] or item['type']} → шансы",
+                  item["price_gp"], item["price_gp"], new_balance))
+            cur.close()
+            return {"ok": True, "currency": "gp", "new_balance": new_balance, "credited": item["price_gp"]}
+
+        # currency == "stars"
+        cur.execute("""
+            SELECT id, icon_png, icon_gif, background_png FROM shop_items
+            WHERE lower(type) = 'stars' AND is_active = TRUE
+            ORDER BY id ASC LIMIT 1
+        """)
+        template = cur.fetchone()
+        template_item_id = template[0] if template else None
+        icon_png = template[1] if template else item["icon_png"]
+        icon_gif = template[2] if template else item["icon_gif"]
+        background_png = template[3] if template else item["background_png"]
+
+        cur.execute("UPDATE user_inventory SET status = 'exchanged_stars' WHERE id = %s", (inventory_id,))
+
+        cur.execute("""
+            INSERT INTO user_inventory
+                (user_id, item_id, type, collection, model, background, symbol,
+                 icon_png, icon_gif, background_png, price_stars, price_gp, source, status)
+            VALUES (%s, %s, 'stars', NULL, NULL, NULL, NULL, %s, %s, %s, %s, %s, 'exchange', 'owned')
+            RETURNING id, created_at
+        """, (user_id, template_item_id, icon_png, icon_gif, background_png,
+              item["price_stars"], item["price_gp"]))
+        new_id, created_at = cur.fetchone()
+
+        cur.execute("""
+            INSERT INTO game_rounds
+                (user_id, game_type, bet, result_label, payout, balance_change, balance_after)
+            VALUES (%s, 'exchange', 0, %s, 0, 0,
+                (SELECT balance FROM user_chances WHERE user_id = %s))
+        """, (user_id, f"Обмен: {item['collection'] or item['type']} → Stars", user_id))
+        cur.close()
+
+        new_item = {
+            "id": new_id,
+            "item_id": template_item_id,
+            "type": "stars",
+            "collection": None,
+            "model": None,
+            "background": None,
+            "symbol": None,
+            "icon_png": icon_png,
+            "icon_gif": icon_gif,
+            "background_png": background_png,
+            "price_stars": item["price_stars"],
+            "price_gp": item["price_gp"],
+            "status": "owned",
+            "acquired_at": created_at,
+        }
+        return {"ok": True, "currency": "stars", "new_item": new_item}
+
+
+@app.post("/api/inventory/{inventory_id}/claim")
+async def claim_inventory_item(inventory_id: int, token: str = Depends(bearer_token)):
+    """"Получить" предмет — помечает его как запрошенный к выводу.
+    Фактическая передача подарка/звёзд происходит вне сайта (поддержка/бот),
+    здесь только фиксируем заявку, чтобы предмет не обменяли повторно."""
+    with db() as conn:
+        user = require_session(conn, token)
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE user_inventory SET status = 'claim_requested'
+            WHERE id = %s AND user_id = %s AND status = 'owned'
+            RETURNING id
+        """, (inventory_id, user["user_id"]))
+        row = cur.fetchone()
+        cur.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Предмет не найден в инвентаре")
+    return {"ok": True}
+
+
+def _require_admin(secret: Optional[str]):
+    if not ADMIN_SECRET:
+        raise HTTPException(status_code=503, detail="Admin-функции не настроены (ADMIN_SECRET не задан)")
+    if not secret or secret != ADMIN_SECRET:
+        raise HTTPException(status_code=403, detail="Неверный admin-секрет")
+
+
+@app.post("/api/admin/inventory/grant")
+async def admin_grant_item(body: AdminGrantBody, x_admin_secret: Optional[str] = Header(default=None)):
+    """Служебная ручка для выдачи предмета из каталога shop_items конкретному
+    игроку (по telegram_id). Вызывается с заголовком X-Admin-Secret."""
+    _require_admin(x_admin_secret)
+    with db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT type, collection, model, background, symbol,
+                   icon_png, icon_gif, background_png, price_stars, price_gp
+            FROM shop_items WHERE id = %s AND is_active = TRUE
+        """, (body.item_id,))
+        item = cur.fetchone()
+        if not item:
+            cur.close()
+            raise HTTPException(status_code=404, detail="Предмет каталога не найден")
+        cur.execute("""
+            INSERT INTO user_inventory
+                (user_id, item_id, type, collection, model, background, symbol,
+                 icon_png, icon_gif, background_png, price_stars, price_gp, source, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'admin', 'owned')
+            RETURNING id
+        """, (body.telegram_id, body.item_id, *item))
+        new_id = cur.fetchone()[0]
+        cur.close()
+    return {"ok": True, "inventory_id": new_id}
 
 
 @app.get("/api/games/history")
