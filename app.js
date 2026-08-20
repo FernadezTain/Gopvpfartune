@@ -339,7 +339,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
 
   function updateBetUI() {
     els.betValue.value = bet;
-    els.spinCost.textContent = `−${bet} шансов`;
+    els.spinCost.textContent = `−${bet} GP`;
     els.betMinus.disabled = bet <= minBet;
     els.betPlus.disabled = bet >= maxBet;
   }
@@ -423,10 +423,10 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
     els.resultBadge.classList.remove("hidden", "win", "lose", "flat");
     if (net > 0) {
       els.resultBadge.classList.add("win");
-      els.resultBadge.textContent = `${data.label} · +${net} шансов`;
+      els.resultBadge.textContent = `${data.label} · +${net} GP`;
     } else if (net < 0) {
       els.resultBadge.classList.add("lose");
-      els.resultBadge.textContent = `${data.label} · −${Math.abs(net)} шансов`;
+      els.resultBadge.textContent = `${data.label} · −${Math.abs(net)} GP`;
     } else {
       els.resultBadge.classList.add("flat");
       els.resultBadge.textContent = `${data.label} · ставка возвращена`;
