@@ -317,7 +317,7 @@
         els.actionCost.textContent = "";
       } else {
         els.actionText.textContent = "Поставить";
-        els.actionCost.textContent = `−${bet} шансов`;
+        els.actionCost.textContent = `−${bet} GP`;
       }
     } else if (roundStatus === "flying") {
       els.actionBtn.classList.add("is-cashout");
