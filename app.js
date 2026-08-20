@@ -555,6 +555,58 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
   window.AppState.fetchRecentGames = fetchRecentGames;
   window.AppState.navigateTo = navigateTo;
 
+  // ---------- заморозка gif в статичный кадр (для слабых устройств) ----------
+  // Используется и в кейсах (лента/список содержимого), и в инвентаре:
+  // проигрывать gif-анимацию сразу в нескольких карточках одновременно
+  // (особенно в быстро скроллящейся ленте открытия кейса) — гарантированный
+  // лаг на слабых телефонах. Поэтому везде, кроме модалки "Управление
+  // предметом", если у предмета есть только Icon_Gif (Icon_Png пуст),
+  // рисуем первый кадр gif на canvas и отдаём статичный PNG вместо живой
+  // анимации. Результаты кешируются по URL, чтобы не перерисовывать один
+  // и тот же gif десятки раз в ленте кейса.
+  const _freezeCache = new Map();
+
+  function freezeFirstFrame(url) {
+    if (!url) return Promise.resolve(null);
+    if (_freezeCache.has(url)) return _freezeCache.get(url);
+
+    const promise = new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth || 1;
+          canvas.height = img.naturalHeight || 1;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        } catch (_) {
+          // Кросс-домен без CORS-заголовков — canvas "испачкан", читать
+          // пиксели нельзя. Возвращаем исходный gif как есть: лучше живая
+          // анимация в одном месте, чем совсем без картинки.
+          resolve(url);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+
+    _freezeCache.set(url, promise);
+    return promise;
+  }
+
+  // Единая точка выбора иконки ВНЕ модалок управления: всегда png, если
+  // он есть; если png пуст, а gif есть — статичный (замороженный) gif.
+  function staticIconFor(item) {
+    if (item.icon_png) return Promise.resolve(item.icon_png);
+    if (item.icon_gif) return freezeFirstFrame(item.icon_gif);
+    return Promise.resolve(null);
+  }
+
+  window.AppState.freezeFirstFrame = freezeFirstFrame;
+  window.AppState.staticIconFor = staticIconFor;
+
   // ---------- preloader ----------
 
   function runPreloaderFill(durationMs) {
