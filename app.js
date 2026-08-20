@@ -36,6 +36,7 @@
     blackjackScreen: document.getElementById("blackjackScreen"),
     profileScreen: document.getElementById("profileScreen"),
     historyScreen: document.getElementById("historyScreen"),
+    inventoryScreen: document.getElementById("inventoryScreen"),
 
     idForm: document.getElementById("idForm"),
     telegramId: document.getElementById("telegramId"),
@@ -63,6 +64,7 @@
     profileId: document.getElementById("profileId"),
     profileBalance: document.getElementById("profileBalance"),
     openHistoryBtn: document.getElementById("openHistoryBtn"),
+    openInventoryBtn: document.getElementById("openInventoryBtn"),
     logoutBtn: document.getElementById("logoutBtn"),
 
     historyTableBody: document.getElementById("historyTableBody"),
@@ -121,7 +123,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
 
     [
       "loginScreen", "mainMenuScreen", "casesScreen", "caseDetailScreen", "wheelScreen",
-      "aviatorScreen", "blackjackScreen", "profileScreen", "historyScreen",
+      "aviatorScreen", "blackjackScreen", "profileScreen", "historyScreen", "inventoryScreen",
     ].forEach((id) => document.getElementById(id).classList.add("hidden"));
 
     const screenEl = document.getElementById(screenId);
@@ -129,7 +131,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
 
     // Нижний навбар виден на "верхнеуровневых" экранах (меню, профиль,
     // история) — кнопка "назад" видна в самих играх (колесо, самолётик, блэкджек).
-    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen", "caseDetailScreen"].includes(screenId);
+    const isSubScreen = ["wheelScreen", "aviatorScreen", "blackjackScreen", "historyScreen", "caseDetailScreen", "inventoryScreen"].includes(screenId);
     els.bottomNav.classList.toggle("hidden", isSubScreen);
     els.backBtn.classList.toggle("hidden", !isSubScreen);
 
@@ -163,6 +165,9 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
     }
     if (screenId === "historyScreen") {
       loadGamesHistory();
+    }
+    if (screenId === "inventoryScreen" && window.InventoryGame) {
+      dataReady = window.InventoryGame.onEnter();
     }
 
     if (isGameScreen) {
@@ -460,6 +465,7 @@ const TOP_LEVEL_SCREENS = ["mainMenuScreen", "casesScreen", "profileScreen"]; //
   }
 
   els.openHistoryBtn.addEventListener("click", () => navigateTo("historyScreen"));
+  els.openInventoryBtn.addEventListener("click", () => navigateTo("inventoryScreen"));
 
   // ---------- API helper (общий, используется и aviator.js) ----------
 
