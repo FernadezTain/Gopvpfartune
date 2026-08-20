@@ -196,7 +196,7 @@
       rows.push(["Коллекция", item.collection]);
     }
     rows.push(["Price Stars", `⭐ ${item.price_stars}`]);
-    rows.push(["Price GP", `${item.price_gp} шансов`]);
+    rows.push(["Price GP", `${item.price_gp} GP`]);
 
     els.manageRows.innerHTML = rows
       .map(([label, value]) => `
