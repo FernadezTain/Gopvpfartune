@@ -22,7 +22,7 @@
   };
 
   const ctx = els.canvas.getContext("2d");
-  const MIN_BET = 1, BET_STEP = 1, MAX_BET = 500;
+  const MIN_BET = 1, BET_STEP = 1, MAX_BET = Infinity;
   const GROWTH_RATE = 0.16;   // должно совпадать с api_server.py
   const POLL_MS = 700;        // редкая сверка с сервером — растёт мультипликатор локально, по времени
   let bet = 5;
