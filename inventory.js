@@ -1,416 +1,350 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<title>Go pvp — Игры</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;900&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css" />
-</head>
-<body>
+(function () {
+  "use strict";
 
-<div class="bg-decor" aria-hidden="true"></div>
-<div class="noise-overlay" aria-hidden="true"></div>
+  // Экран "Инвентарь": сетка предметов (Stars / NFT / Gift), модалка
+  // "Управление предметом" (иконка + мета-поля + кнопки Обменять/Получить)
+  // и модалка "Обмен предмета" (выбор валюты Stars/Шансы).
+  //
+  // Правило анимации: если у предмета есть Icon_Gif, в СЕТКЕ он не должен
+  // анимироваться — там показывается замороженный первый кадр (через
+  // canvas). Живой gif проигрывается только внутри модалки управления.
 
-<!-- ЭКРАН ЗАГРУЗКИ -->
-<div id="preloader" class="preloader">
-  <div class="preloader-letters">
-    <span class="letters-base" aria-hidden="true">GP</span>
-    <span id="lettersFill" class="letters-fill" aria-hidden="true">GP</span>
-  </div>
-</div>
+  const els = {
+    invEmpty: document.getElementById("invEmpty"),
+    invGrid: document.getElementById("invGrid"),
 
-<header class="topbar">
-  <div class="brand">
-    <span class="icon-logo" aria-hidden="true"></span>
-    <span class="brand-text">Go&nbsp;pvp</span>
-  </div>
-  <div id="backBtn" class="back-btn hidden">
-    <span class="icon-back" aria-hidden="true"></span><span>Назад</span>
-  </div>
-  <div id="balanceChip" class="balance-chip hidden">
-    <span class="balance-label">Баланс</span>
-    <span id="balanceValue" class="balance-value">0</span>
-    <span class="balance-unit">шанс.</span>
-  </div>
-</header>
+    manageModal: document.getElementById("invManageModal"),
+    manageClose: document.getElementById("invManageClose"),
+    manageIconBg: document.getElementById("invManageIconBg"),
+    manageIcon: document.getElementById("invManageIcon"),
+    manageName: document.getElementById("invManageName"),
+    manageRows: document.getElementById("invManageRows"),
+    exchangeBtn: document.getElementById("invExchangeBtn"),
+    claimBtn: document.getElementById("invClaimBtn"),
 
-<!-- ЭКРАН ВХОДА -->
-<main id="loginScreen" class="login-screen hidden">
-  <div class="login-card">
-    <p class="eyebrow">Вход через Telegram</p>
-    <h1 class="login-title">Крутите колесо,<br />запускайте самолёт</h1>
-    <p class="login-sub">Введите свой Telegram ID — мы пришлём код подтверждения прямо в бота.</p>
+    exchangeModal: document.getElementById("invExchangeModal"),
+    exchangeClose: document.getElementById("invExchangeClose"),
+    currencyToggle: document.getElementById("invCurrencyToggle"),
+    exchangeError: document.getElementById("invExchangeError"),
+    exchangeCancel: document.getElementById("invExchangeCancel"),
+    exchangeConfirm: document.getElementById("invExchangeConfirm"),
 
-    <form id="idForm" class="login-form">
-      <label class="field-label" for="telegramId">Telegram ID</label>
-      <input id="telegramId" class="field-input" type="text" inputmode="numeric" autocomplete="off"
-             placeholder="например, 106240982" required />
-      <button type="submit" class="btn btn-primary" id="sendCodeBtn">Отправить код</button>
-      <p class="hint">Не знаете ID? Спросите у бота — команда <code>/start</code> подскажет.</p>
-    </form>
+    toastStack: document.getElementById("toastStack"),
+  };
 
-    <form id="codeForm" class="login-form hidden">
-      <label class="field-label" for="codeInput">Код из Telegram</label>
-      <input id="codeInput" class="field-input code-input" type="text" inputmode="numeric" maxlength="6"
-             placeholder="______" autocomplete="one-time-code" required />
-      <button type="submit" class="btn btn-primary" id="verifyBtn">Войти</button>
-      <button type="button" class="btn btn-ghost" id="resendBtn">Отправить код ещё раз</button>
-    </form>
+  const TYPE_LABELS = { nft: "NFT", gift: "Подарок", stars: "Stars" };
+  // Часть значений Background из каталога — обычные названия CSS-цветов
+  // (Aquamarine, Tomato, Fuchsia, ...) — их можно использовать как есть.
+  const FALLBACK_CARD_BG = ["#3a2f63", "#2f2a4d"];
 
-    <p id="loginError" class="login-error hidden"></p>
-  </div>
-</main>
+  let items = [];
+  let activeItem = null;
+  let activeCurrency = "stars";
+  let busy = false;
 
-<!-- ЭКРАН КЕЙСОВ -->
-<main id="casesScreen" class="cases-screen hidden">
-  <p class="menu-title">Кейсы</p>
-  <div class="case-grid" id="caseGrid">
-    <button class="case-card" id="caseCardBtn" data-case="gopvp_green">
-      <span class="case-card-badge">Новое</span>
-      <img class="case-card-img" src="case_icon/Gopvp_greencase.png" alt="Gopvp Green Case" />
-      <span class="case-card-price"><span class="icon-chance-coin" aria-hidden="true"></span><span id="caseListPrice">30</span></span>
-      <span class="case-card-name">Стартовый кейс</span>
-    </button>
-  </div>
-</main>
+  // ---------- helpers ----------
 
-<!-- ГЛАВНОЕ МЕНЮ -->
-<main id="mainMenuScreen" class="menu-screen hidden">
-  <p class="menu-title">Игры</p>
-  <div class="game-grid">
-    <button class="game-card game-card-wheel" data-target="wheelScreen">
-      <span class="game-card-arrow" aria-hidden="true"></span>
-      <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-wheel"></span></span>
-      <span class="game-card-name">Колесо Фортуны</span>
-      <span class="game-card-sub">Крути и множь шансы</span>
-    </button>
-    <button class="game-card game-card-aviator" data-target="aviatorScreen">
-      <span class="game-card-arrow" aria-hidden="true"></span>
-      <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-plane"></span></span>
-      <span class="game-card-name">Авиатор</span>
-      <span class="game-card-sub">Успей забрать до краша</span>
-    </button>
-    <button class="game-card game-card-blackjack" data-target="blackjackScreen">
-      <span class="game-card-arrow" aria-hidden="true"></span>
-      <span class="game-card-icon-badge" aria-hidden="true"><span class="icon-cards"></span></span>
-      <span class="game-card-name">Блэкджек</span>
-      <span class="game-card-sub">Собери 21 против дилера</span>
-    </button>
-  </div>
-</main>
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
 
-<!-- ЭКРАН КОЛЕСА -->
-<main id="wheelScreen" class="wheel-screen hidden">
-  <div class="wheel-layout">
+  function pickIconForGrid(item) {
+    // В сетке всегда без анимации: если есть png — берём его, если только
+    // gif — замораживаем первый кадр в canvas.
+    if (item.icon_png) return Promise.resolve(item.icon_png);
+    if (item.icon_gif) return freezeFirstFrame(item.icon_gif);
+    return Promise.resolve(null);
+  }
 
-    <section class="wheel-stage">
-      <div class="wheel-pointer" aria-hidden="true"></div>
-      <div class="wheel-rim">
-        <div id="wheel" class="wheel"></div>
-        <div class="wheel-hub">SPIN</div>
-      </div>
+  function pickIconForModal(item) {
+    // В модалке управления живая анимация разрешена — используем gif,
+    // если он есть, иначе png (см. правило "если Png пуст — применяется Gif").
+    return item.icon_gif || item.icon_png || null;
+  }
 
-      <div id="resultBadge" class="result-badge hidden"></div>
-    </section>
+  function freezeFirstFrame(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth || 1;
+          canvas.height = img.naturalHeight || 1;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL("image/png"));
+        } catch (_) {
+          // Кросс-домен без CORS-заголовков — canvas "испачкан", не можем
+          // прочитать пиксели. В этом случае лучше показать анимацию,
+          // чем совсем без картинки.
+          resolve(url);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
 
-    <div class="wheel-side">
-      <section class="control-panel">
-        <div class="bet-control">
-          <span class="bet-label">Ставка</span>
-          <div class="bet-stepper">
-            <button type="button" id="betMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
-            <input id="betValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
-            <button type="button" id="betPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
-          </div>
-          <span class="bet-unit">шансов</span>
+  function cardBackground(item) {
+    if (item.background) return item.background;
+    return null;
+  }
+
+  function itemTitle(item) {
+    if (item.type === "nft") return item.model || item.symbol || item.collection || "NFT";
+    if (item.type === "gift") return item.collection || "Подарок";
+    return "Stars";
+  }
+
+  function itemSubtitle(item) {
+    if (item.type === "nft") return item.collection || "";
+    return "";
+  }
+
+  // ---------- вход на экран ----------
+
+  async function onEnter() {
+    els.invGrid.innerHTML = `<div class="inv-loading">Загрузка инвентаря…</div>`;
+    els.invEmpty.classList.add("hidden");
+    try {
+      const data = await window.AppState.api("/api/inventory", { auth: true });
+      items = data.items || [];
+      await renderGrid();
+    } catch (err) {
+      els.invGrid.innerHTML = "";
+      els.invEmpty.classList.remove("hidden");
+      els.invEmpty.querySelector("p").textContent = err.message || "Не удалось загрузить инвентарь";
+    }
+  }
+
+  async function renderGrid() {
+    els.invGrid.innerHTML = "";
+    if (!items.length) {
+      els.invEmpty.classList.remove("hidden");
+      els.invEmpty.querySelector("p").textContent =
+        "Пока пусто. Открывайте кейсы и получайте предметы — они появятся здесь.";
+      return;
+    }
+    els.invEmpty.classList.add("hidden");
+
+    const fragment = document.createDocumentFragment();
+    const cards = await Promise.all(items.map(buildCard));
+    cards.forEach((card, i) => {
+      card.style.setProperty("--inv-i", i);
+      fragment.appendChild(card);
+    });
+    els.invGrid.appendChild(fragment);
+  }
+
+  async function buildCard(item) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `inv-card inv-card-${item.type}`;
+    card.dataset.id = item.id;
+
+    const bg = cardBackground(item);
+    if (bg) card.style.setProperty("--inv-card-bg", bg);
+
+    const iconSrc = await pickIconForGrid(item);
+
+    card.innerHTML = `
+      <span class="inv-card-badge">${TYPE_LABELS[item.type] || item.type}</span>
+      <span class="inv-card-sheen" aria-hidden="true"></span>
+      <span class="inv-card-icon-wrap">
+        ${iconSrc ? `<img class="inv-card-icon" src="${iconSrc}" alt="" loading="lazy" />` : `<span class="inv-card-icon-ph">✦</span>`}
+      </span>
+      <span class="inv-card-shade" aria-hidden="true"></span>
+      <span class="inv-card-name">${escapeHtml(itemTitle(item))}</span>
+      <span class="inv-card-price">
+        <span class="inv-price-chip"><span class="inv-price-star">⭐</span>${item.price_stars}</span>
+        <span class="inv-price-chip"><span class="icon-chance-coin" aria-hidden="true"></span>${item.price_gp}</span>
+      </span>
+    `;
+    card.addEventListener("click", () => openManageModal(item));
+    return card;
+  }
+
+  // ---------- модалка "Управление предметом" ----------
+
+  function openManageModal(item) {
+    activeItem = item;
+    const iconSrc = pickIconForModal(item);
+    els.manageIcon.src = iconSrc || "";
+    els.manageIcon.classList.toggle("hidden", !iconSrc);
+    els.manageIconBg.style.background = cardBackground(item) || "linear-gradient(160deg, #342f54, #221e3a)";
+    if (item.background_png) {
+      els.manageIconBg.style.backgroundImage = `url(${item.background_png})`;
+      els.manageIconBg.style.backgroundSize = "cover";
+      els.manageIconBg.style.backgroundPosition = "center";
+    } else {
+      els.manageIconBg.style.backgroundImage = "none";
+    }
+
+    els.manageName.textContent = itemTitle(item);
+
+    const rows = [];
+    rows.push(["Тип", TYPE_LABELS[item.type] || item.type]);
+    if (item.type === "nft") {
+      if (item.collection) rows.push(["Коллекция", item.collection]);
+      if (item.model) rows.push(["Модель", item.model]);
+      if (item.background) rows.push(["Фон", item.background]);
+      if (item.symbol) rows.push(["Символ", item.symbol]);
+    } else if (item.type === "gift" && item.collection) {
+      rows.push(["Коллекция", item.collection]);
+    }
+    rows.push(["Price Stars", `⭐ ${item.price_stars}`]);
+    rows.push(["Price GP", `${item.price_gp} шансов`]);
+
+    els.manageRows.innerHTML = rows
+      .map(([label, value]) => `
+        <div class="inv-row">
+          <span class="inv-row-label">${escapeHtml(label)}</span>
+          <span class="inv-row-value">${escapeHtml(String(value))}</span>
         </div>
+      `)
+      .join("");
 
-        <button id="spinBtn" class="btn btn-spin">
-          <span class="btn-spin-text">Крутить</span>
-          <span class="btn-spin-cost" id="spinCost">−5 шансов</span>
-        </button>
+    els.claimBtn.disabled = false;
+    els.claimBtn.textContent = "Получить";
 
-        <p id="spinError" class="spin-error hidden"></p>
-      </section>
+    els.manageModal.classList.remove("hidden");
+    void els.manageModal.offsetWidth;
+    els.manageModal.classList.add("is-open");
+  }
 
-      <section class="legend">
-        <p class="legend-title">Секции колеса</p>
-        <ul class="legend-list" id="legendList"></ul>
-      </section>
+  function closeManageModal() {
+    els.manageModal.classList.remove("is-open");
+    window.setTimeout(() => els.manageModal.classList.add("hidden"), 200);
+  }
 
-      <section class="legend">
-        <p class="legend-title">Последние игры</p>
-        <ul id="wheelRecentGamesList" class="recent-games-list">
-          <li class="history-empty">Загрузка…</li>
-        </ul>
-      </section>
-    </div>
+  els.manageClose.addEventListener("click", closeManageModal);
+  els.manageModal.addEventListener("click", (e) => {
+    if (e.target === els.manageModal) closeManageModal();
+  });
 
-  </div>
-</main>
+  // ---------- модалка "Обмен предмета" ----------
 
-<!-- ЭКРАН САМОЛЁТИКА -->
-<main id="aviatorScreen" class="aviator-screen hidden">
-  <div class="aviator-layout">
+  function openExchangeModal() {
+    if (!activeItem) return;
+    activeCurrency = "stars";
+    els.currencyToggle.querySelectorAll(".inv-currency-opt").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.currency === activeCurrency);
+    });
+    els.exchangeError.classList.add("hidden");
+    els.exchangeConfirm.disabled = false;
+    els.exchangeConfirm.textContent = "Обменять";
 
-    <section class="aviator-stage">
-      <div class="aviator-stage-grid" aria-hidden="true"></div>
-      <canvas id="aviatorCanvas" class="aviator-canvas"></canvas>
-      <div id="aviatorPlane" class="aviator-plane is-hidden" aria-hidden="true">
-        <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-          <polygon points="4,58 60,32 4,6 18,32" fill="#ffd77a"/>
-          <polygon points="4,58 22,38 18,32" fill="#d9862c"/>
-          <polygon points="4,6 22,26 18,32" fill="#fff2d0"/>
-        </svg>
-      </div>
-      <div class="aviator-readout">
-        <p class="aviator-readout-label">Множитель</p>
-        <div id="aviatorMultiplier" class="aviator-multiplier">1.00x</div>
-      </div>
-      <div id="aviatorStatus" class="aviator-status">Ожидание ставок…</div>
-    </section>
+    els.exchangeModal.classList.remove("hidden");
+    void els.exchangeModal.offsetWidth;
+    els.exchangeModal.classList.add("is-open");
+  }
 
-    <div class="aviator-side">
-      <section class="control-panel">
-        <div class="bet-control">
-          <span class="bet-label">Ставка</span>
-          <div class="bet-stepper">
-            <button type="button" id="aviBetMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
-            <input id="aviBetValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
-            <button type="button" id="aviBetPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
-          </div>
-          <span class="bet-unit">шансов</span>
-        </div>
+  function closeExchangeModal() {
+    els.exchangeModal.classList.remove("is-open");
+    window.setTimeout(() => els.exchangeModal.classList.add("hidden"), 200);
+  }
 
-        <button id="aviActionBtn" class="btn btn-spin">
-          <span class="btn-spin-text" id="aviActionText">Поставить</span>
-          <span class="btn-spin-cost" id="aviActionCost">−5 шансов</span>
-        </button>
+  els.exchangeBtn.addEventListener("click", openExchangeModal);
+  els.exchangeClose.addEventListener("click", closeExchangeModal);
+  els.exchangeCancel.addEventListener("click", closeExchangeModal);
+  els.exchangeModal.addEventListener("click", (e) => {
+    if (e.target === els.exchangeModal) closeExchangeModal();
+  });
 
-        <p id="aviError" class="spin-error hidden"></p>
-      </section>
+  els.currencyToggle.querySelectorAll(".inv-currency-opt").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeCurrency = btn.dataset.currency;
+      els.currencyToggle.querySelectorAll(".inv-currency-opt").forEach((b) => {
+        b.classList.toggle("is-active", b === btn);
+      });
+    });
+  });
 
-      <section class="legend">
-        <p class="legend-title">Последние игры</p>
-        <ul id="aviRecentGamesList" class="recent-games-list">
-          <li class="history-empty">Загрузка…</li>
-        </ul>
-      </section>
-    </div>
+  els.exchangeConfirm.addEventListener("click", async () => {
+    if (busy || !activeItem) return;
+    busy = true;
+    els.exchangeConfirm.disabled = true;
+    els.exchangeConfirm.textContent = "Обмениваем…";
+    els.exchangeError.classList.add("hidden");
 
-  </div>
-</main>
+    try {
+      const result = await window.AppState.api(`/api/inventory/${activeItem.id}/exchange`, {
+        method: "POST",
+        auth: true,
+        body: { currency: activeCurrency },
+      });
 
-<!-- ЭКРАН БЛЭКДЖЕКА -->
-<main id="blackjackScreen" class="aviator-screen hidden">
-  <div class="aviator-layout">
+      // Убираем обменянный предмет из локального списка.
+      items = items.filter((it) => it.id !== activeItem.id);
+      if (result.currency === "gp") {
+        window.AppState.setBalance(result.new_balance);
+      } else if (result.currency === "stars" && result.new_item) {
+        items.unshift(result.new_item);
+      }
 
-    <section class="aviator-stage bj-stage">
-      <div class="bj-hand">
-        <p class="bj-hand-label">Дилер <span id="bjDealerTotal" class="bj-hand-total"></span></p>
-        <div id="bjDealerCards" class="bj-cards"></div>
-      </div>
-      <div class="bj-hand">
-        <p class="bj-hand-label">Вы <span id="bjPlayerTotal" class="bj-hand-total"></span></p>
-        <div id="bjPlayerCards" class="bj-cards"></div>
-      </div>
-      <div id="bjStatus" class="aviator-status">Сделайте ставку</div>
-    </section>
+      closeExchangeModal();
+      closeManageModal();
+      await renderGrid();
+      showToast("Обмен завершён!");
+    } catch (err) {
+      els.exchangeError.textContent = err.message || "Не удалось выполнить обмен";
+      els.exchangeError.classList.remove("hidden");
+      els.exchangeConfirm.disabled = false;
+      els.exchangeConfirm.textContent = "Обменять";
+    } finally {
+      busy = false;
+    }
+  });
 
-    <div class="aviator-side">
-      <section class="control-panel">
-        <div class="bet-control">
-          <span class="bet-label">Ставка</span>
-          <div class="bet-stepper">
-            <button type="button" id="bjBetMinus" class="stepper-btn" aria-label="Уменьшить ставку">–</button>
-            <input id="bjBetValue" class="bet-value bet-value-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" value="5" aria-label="Своя ставка" />
-            <button type="button" id="bjBetPlus" class="stepper-btn" aria-label="Увеличить ставку">+</button>
-          </div>
-          <span class="bet-unit">шансов</span>
-        </div>
+  // ---------- "Получить" ----------
 
-        <button id="bjDealBtn" class="btn btn-spin">
-          <span class="btn-spin-text">Раздать</span>
-          <span class="btn-spin-cost" id="bjDealCost">−5 шансов</span>
-        </button>
+  els.claimBtn.addEventListener("click", async () => {
+    if (busy || !activeItem) return;
+    busy = true;
+    els.claimBtn.disabled = true;
+    els.claimBtn.textContent = "Отправляем…";
+    try {
+      await window.AppState.api(`/api/inventory/${activeItem.id}/claim`, { method: "POST", auth: true });
+      items = items.filter((it) => it.id !== activeItem.id);
+      closeManageModal();
+      await renderGrid();
+      showToast("Заявка на получение отправлена!");
+    } catch (err) {
+      els.claimBtn.disabled = false;
+      els.claimBtn.textContent = "Получить";
+      showToast(err.message || "Не удалось отправить заявку", true);
+    } finally {
+      busy = false;
+    }
+  });
 
-        <div id="bjActions" class="bj-actions hidden">
-          <button type="button" id="bjHitBtn" class="btn btn-ghost">Ещё карту</button>
-          <button type="button" id="bjStandBtn" class="btn btn-ghost">Хватит</button>
-          <button type="button" id="bjDoubleBtn" class="btn btn-ghost">Удвоить</button>
-        </div>
+  // ---------- toast ----------
 
-        <p id="bjError" class="spin-error hidden"></p>
-      </section>
+  function showToast(text, isError) {
+    const toast = document.createElement("div");
+    toast.className = `toast${isError ? " toast-error" : ""}`;
+    toast.innerHTML = `
+      <span class="toast-text">${escapeHtml(text)}</span>
+      <span class="toast-progress"></span>
+    `;
+    els.toastStack.appendChild(toast);
 
-      <section class="legend">
-        <p class="legend-title">Последние игры</p>
-        <ul id="bjRecentGamesList" class="recent-games-list">
-          <li class="history-empty">Загрузка…</li>
-        </ul>
-      </section>
-    </div>
+    void toast.offsetWidth;
+    toast.classList.add("is-in");
 
-  </div>
-</main>
+    const bar = toast.querySelector(".toast-progress");
+    const remove = () => {
+      toast.classList.remove("is-in");
+      toast.classList.add("is-out");
+      window.setTimeout(() => toast.remove(), 220);
+    };
+    bar.addEventListener("animationend", remove);
+    // подстраховка, если animationend не сработал
+    window.setTimeout(remove, 3400);
+  }
 
-<!-- ЭКРАН ОТКРЫТИЯ КЕЙСА -->
-<main id="caseDetailScreen" class="cases-screen hidden">
-  <div class="case-hero">
-    <img class="case-hero-icon" id="caseHeroIcon" src="case_icon/Gopvp_greencase.png" alt="Стартовый кейс" />
-    <p class="case-hero-name" id="caseHeroName">Стартовый кейс</p>
-    <p class="case-hero-sub">Испытай удачу и получи шансы</p>
-
-    <div id="caseReel" class="case-reel hidden">
-      <div class="case-reel-viewport">
-        <div id="caseReelTrack" class="case-reel-track"></div>
-        <div class="case-reel-pointer" aria-hidden="true"></div>
-      </div>
-    </div>
-
-    <button id="caseOpenBtn" class="btn btn-spin case-open-btn">
-      <span class="btn-spin-text">Открыть кейс</span>
-      <span class="btn-spin-cost" id="caseOpenCost">−30 шансов</span>
-    </button>
-
-    <p id="caseError" class="spin-error hidden"></p>
-    <div id="caseResultBadge" class="result-badge hidden"></div>
-  </div>
-
-  <section class="legend case-content-panel">
-    <p class="legend-title">Содержимое кейса</p>
-    <div id="caseItemsGrid" class="case-items-grid"></div>
-  </section>
-
-  <section class="legend">
-    <p class="legend-title">Последние игры</p>
-    <ul id="caseRecentGamesList" class="recent-games-list">
-      <li class="history-empty">Загрузка…</li>
-    </ul>
-  </section>
-</main>
-
-<!-- ПРОФИЛЬ -->
-<main id="profileScreen" class="profile-screen hidden">
-  <div class="profile-card">
-    <div class="profile-avatar"><span class="icon-user-lg" aria-hidden="true"></span></div>
-    <p id="profileName" class="profile-name">—</p>
-    <p id="profileId" class="profile-id">ID: —</p>
-    <div class="profile-balance">
-      <span class="balance-label">Баланс</span>
-      <span id="profileBalance" class="balance-value">0</span>
-      <span class="balance-unit">шанс.</span>
-    </div>
-  </div>
-  <button id="openInventoryBtn" class="btn btn-primary btn-history">Инвентарь</button>
-  <button id="openHistoryBtn" class="btn btn-ghost-outline btn-history">История игр</button>
-  <button id="logoutBtn" class="btn btn-ghost">Выйти из аккаунта</button>
-</main>
-
-<!-- ЭКРАН ИНВЕНТАРЯ -->
-<main id="inventoryScreen" class="cases-screen inventory-screen hidden">
-  <p class="menu-title">Инвентарь</p>
-
-  <div id="invEmpty" class="inv-empty hidden">
-    <span class="inv-empty-icon" aria-hidden="true">🎒</span>
-    <p>Пока пусто. Открывайте кейсы и получайте предметы — они появятся здесь.</p>
-  </div>
-
-  <div id="invGrid" class="inv-grid"></div>
-</main>
-
-<!-- МОДАЛКА: УПРАВЛЕНИЕ ПРЕДМЕТОМ -->
-<div id="invManageModal" class="modal-overlay hidden">
-  <div class="modal-panel inv-manage-panel">
-    <button type="button" class="modal-close" id="invManageClose" aria-label="Закрыть">✕</button>
-    <p class="modal-eyebrow">Управление предметом</p>
-
-    <div class="inv-manage-icon-wrap">
-      <div id="invManageIconBg" class="inv-manage-icon-bg">
-        <img id="invManageIcon" class="inv-manage-icon" src="" alt="" />
-      </div>
-    </div>
-    <p id="invManageName" class="inv-manage-name">—</p>
-
-    <div class="inv-manage-actions">
-      <button type="button" id="invExchangeBtn" class="btn btn-primary inv-action-btn">Обменять</button>
-      <button type="button" id="invClaimBtn" class="btn btn-ghost-outline inv-action-btn">Получить</button>
-    </div>
-
-    <div id="invManageRows" class="inv-manage-rows"></div>
-  </div>
-</div>
-
-<!-- МОДАЛКА: ОБМЕН ПРЕДМЕТА -->
-<div id="invExchangeModal" class="modal-overlay hidden">
-  <div class="modal-panel inv-exchange-panel">
-    <button type="button" class="modal-close" id="invExchangeClose" aria-label="Закрыть">✕</button>
-    <p class="modal-title">Обмен предмета</p>
-    <p class="modal-question">1. На что обмен?</p>
-
-    <div class="inv-currency-toggle" id="invCurrencyToggle">
-      <button type="button" class="inv-currency-opt is-active" data-currency="stars">
-        <span class="inv-currency-icon">⭐</span> Stars
-      </button>
-      <button type="button" class="inv-currency-opt" data-currency="gp">
-        <span class="icon-chance-coin" aria-hidden="true"></span> Шансы
-      </button>
-    </div>
-
-    <p id="invExchangeError" class="spin-error hidden"></p>
-
-    <div class="inv-exchange-footer">
-      <button type="button" id="invExchangeCancel" class="btn btn-ghost-outline">Отмена</button>
-      <button type="button" id="invExchangeConfirm" class="btn btn-primary">Обменять</button>
-    </div>
-  </div>
-</div>
-
-<!-- ТОСТ-УВЕДОМЛЕНИЯ -->
-<div id="toastStack" class="toast-stack" aria-live="polite"></div>
-
-<!-- ИСТОРИЯ ИГР -->
-<main id="historyScreen" class="history-screen hidden">
-  <p class="menu-title">История игр</p>
-  <div class="history-table-wrap">
-    <table class="history-table">
-      <thead>
-        <tr>
-          <th>Игра</th>
-          <th>ID игры</th>
-          <th>Ставка</th>
-          <th>Результат</th>
-          <th>Баланс</th>
-        </tr>
-      </thead>
-      <tbody id="historyTableBody">
-        <tr><td colspan="5" class="history-empty">Загрузка…</td></tr>
-      </tbody>
-    </table>
-  </div>
-</main>
-
-<!-- НИЖНЯЯ НАВИГАЦИЯ -->
-<nav id="bottomNav" class="bottom-nav hidden">
-  <button class="nav-btn is-active" id="navHome" data-target="mainMenuScreen">
-    <span class="nav-icon"><span class="icon-home"></span></span><span>Главная</span>
-  </button>
-  <button class="nav-btn" id="navCases" data-target="casesScreen">
-    <span class="nav-icon"><span class="icon-case-nav"></span></span><span>Кейсы</span>
-  </button>
-  <button class="nav-btn" id="navProfile" data-target="profileScreen">
-    <span class="nav-icon"><span class="icon-user"></span></span><span>Профиль</span>
-  </button>
-</nav>
-
-<script src="config.js"></script>
-<script src="app.js?v=2"></script>
-<script src="aviator.js?v=2"></script>
-<script src="cases.js?v=2"></script>
-<script src="blackjack.js?v=2"></script>
-<script src="inventory.js?v=1"></script>
-</body>
-</html>
+  window.InventoryGame = { onEnter };
+})();
