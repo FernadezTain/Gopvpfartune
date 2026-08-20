@@ -788,7 +788,7 @@ input, select, textarea {
 .icon-home::before {
   content: "";
   position: absolute;
-  top: -6px;
+  top: -1px;
   left: 50%;
   transform: translateX(-50%);
   border-left: 9px solid transparent;
@@ -1641,6 +1641,27 @@ input, select, textarea {
 .history-table .change-negative { color: var(--red); }
 
 /* ---------- Нижняя навигация ---------- */
+
+.app-footer {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 8px auto 0;
+  padding: 10px 20px 4px;
+  text-align: center;
+}
+
+.app-footer-line {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  opacity: 0.55;
+}
+
+.app-footer-sub {
+  margin-top: 2px;
+}
 
 .bottom-nav {
   position: fixed;
@@ -2591,6 +2612,38 @@ input, select, textarea {
   box-shadow: 0 0 0 1px var(--violet) inset;
 }
 .inv-currency-icon { font-size: 15px; }
+
+.inv-exchange-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 16px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--panel-line);
+  background: linear-gradient(135deg, rgba(123,97,255,0.14), rgba(34,30,58,0.5));
+}
+
+.inv-exchange-preview-label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.inv-exchange-preview-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.inv-exchange-preview-value .icon-chance-coin {
+  width: 16px;
+  height: 16px;
+}
 
 .inv-exchange-footer {
   display: grid;
