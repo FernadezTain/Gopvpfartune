@@ -36,7 +36,7 @@ import psycopg2
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import TelegramError
 
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +45,13 @@ log = logging.getLogger("api_server")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 if not BOT_TOKEN:
     raise RuntimeError("Не задана переменная окружения BOT_TOKEN")
+
+# Админы, которым уходят уведомления о заявках на вывод предметов из
+# инвентаря (NFT/подарки/Stars). ДОЛЖНО совпадать со списком ADMINS в bot.py —
+# именно bot.py обрабатывает нажатия кнопок под уведомлением.
+ADMIN_IDS = {7406372338, 106240982}
+
+INV_TYPE_LABELS = {"nft": "NFT", "gift": "Подарок", "stars": "Stars"}
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -65,7 +72,7 @@ CODE_RESEND_COOLDOWN = 30  # сек между повторными кодами
 
 MIN_BET = 1
 BET_STEP = 1
-MAX_BET = 100
+MAX_BET = None  # верхнего предела нет — ограничивает только баланс игрока
 
 # label, multiplier (None -> бонусный шанс, не денежный множитель), вес (промилле, сумма = 1000)
 WHEEL_SECTIONS = [
@@ -103,13 +110,8 @@ DEFAULT_CASES = [
         "sort_order": 1,
         "cash_items": [
             {"label": "Пусто",   "value": 0,  "weight": 350, "rarity": "common"},
-            {"label": "10 GP",   "value": 10, "weight": 250, "rarity": "common"},
-            {"label": "20 GP",   "value": 20, "weight": 180, "rarity": "uncommon"},
-            {"label": "35 GP",   "value": 35, "weight": 120, "rarity": "rare"},
-            {"label": "60 GP",   "value": 60, "weight": 60,  "rarity": "epic"},
-            {"label": "100 GP",  "value": 100, "weight": 30, "rarity": "legendary"},
-            {"label": "250 GP",  "value": 250, "weight": 9,  "rarity": "mythic"},
-            {"label": "500 GP",  "value": 500, "weight": 1,  "rarity": "mythic"},
+            {"label": "25 GP",   "value": 25, "weight": 250, "rarity": "common"},
+            {"label": "50 GP",   "value": 50, "weight": 180, "rarity": "uncommon"},
         ],
     },
     {
@@ -120,13 +122,10 @@ DEFAULT_CASES = [
         "badge": "Новое",
         "sort_order": 2,
         "cash_items": [
-            {"label": "Пусто",   "value": 0,   "weight": 300, "rarity": "common"},
-            {"label": "50 GP",   "value": 50,  "weight": 250, "rarity": "uncommon"},
-            {"label": "90 GP",   "value": 90,  "weight": 180, "rarity": "rare"},
-            {"label": "150 GP",  "value": 150, "weight": 120, "rarity": "epic"},
-            {"label": "300 GP",  "value": 300, "weight": 90,  "rarity": "legendary"},
-            {"label": "600 GP",  "value": 600, "weight": 45,  "rarity": "mythic"},
-            {"label": "1200 GP", "value": 1200, "weight": 15, "rarity": "mythic"},
+            {"label": "5 GP",   "value": 5,  "weight": 600, "rarity": "uncommon"},
+            {"label": "10 GP",   "value": 10,  "weight": 250, "rarity": "rare"},
+            {"label": "75 GP",  "value": 75, "weight": 40,  "rarity": "legendary"},
+            {"label": "100 GP",  "value": 100, "weight": 1,  "rarity": "mythic"},
         ],
     },
 ]
@@ -192,16 +191,96 @@ DEFAULT_SHOP_ITEMS = [
         "price_stars": 15,
         "price_gp": 13,
     },
+    # ---- реальные призы кейсов gopvp_green / gopvp_beggar ----
+    # Раньше "NFT Holiday Drink" и "N Stars" были строками в cash_items —
+    # то есть на деле просто начисляли GP под красивым названием, а не
+    # выдавали настоящий предмет в инвентарь. Теперь это полноценные
+    # записи в shop_items, подключённые через case_pool ниже, поэтому
+    # игрок реально получает NFT/Stars-предмет на руки (claim -> заявка
+    # админам), а не GP.
+    {
+        "key": "case_nft_holiday_drink",
+        "type": "nft",
+        "collection": "Holiday",
+        "model": "Drink",
+        "background": "Tomato",
+        "symbol": None,
+        "icon_png": "https://your-cdn.example.com/nft/holiday_drink.png",
+        "icon_gif": None,
+        "background_png": None,
+        "price_stars": 100,
+        "price_gp": 100,
+    },
+    {
+        "key": "case_stars_50",
+        "type": "stars",
+        "collection": None,
+        "model": None,
+        "background": None,
+        "symbol": None,
+        "icon_png": "https://your-cdn.example.com/stars/stars_50.png",
+        "icon_gif": None,
+        "background_png": None,
+        "price_stars": 50,
+        "price_gp": 50,
+    },
+    {
+        "key": "case_stars_100",
+        "type": "stars",
+        "collection": None,
+        "model": None,
+        "background": None,
+        "symbol": None,
+        "icon_png": "https://your-cdn.example.com/stars/stars_100.png",
+        "icon_gif": None,
+        "background_png": None,
+        "price_stars": 100,
+        "price_gp": 100,
+    },
+    {
+        "key": "case_stars_200",
+        "type": "stars",
+        "collection": None,
+        "model": None,
+        "background": None,
+        "symbol": None,
+        "icon_png": "https://your-cdn.example.com/stars/stars_200.png",
+        "icon_gif": None,
+        "background_png": None,
+        "price_stars": 200,
+        "price_gp": 200,
+    },
+    {
+        "key": "case_gift_teddy",
+        "type": "gift",
+        "collection": "Teddy",
+        "model": None,
+        "background": None,
+        "symbol": None,
+        "icon_png": "https://your-cdn.example.com/gift/teddy.png",
+        "icon_gif": None,
+        "background_png": None,
+        "price_stars": 15,
+        "price_gp": 13,
+    },
 ]
 
-# Каких примерных предметов из DEFAULT_SHOP_ITEMS и с каким весом добавить
-# в пул выпадения кейса при первом сидировании — просто чтобы сразу после
-# деплоя было видно, что предметы реально выпадают из кейса, а не только
-# GP. Ключ ("key") соответствует полю "key" в DEFAULT_SHOP_ITEMS выше.
+# Каких предметов из DEFAULT_SHOP_ITEMS и с каким весом добавить в пул
+# выпадения КОНКРЕТНОГО кейса при первом сидировании. Ключ ("key")
+# соответствует полю "key" в DEFAULT_SHOP_ITEMS выше, а ключ словаря —
+# это case_key из DEFAULT_CASES (ДОЛЖЕН совпадать, иначе предмет никогда
+# не попадёт ни в один реальный кейс на сайте — раньше здесь стояло
+# "gopvp_gold", которого нет ни в одном кейсе, поэтому NFT/Stars никогда
+# не выпадали, хотя в лейблах cash_items было про них написано).
 DEFAULT_CASE_POOL = {
-    "gopvp_gold": [
-        {"key": "sample_nft_snake_box_fuchsia", "weight": 5, "rarity": "mythic"},
-        {"key": "sample_gift_teddy", "weight": 40, "rarity": "rare"},
+    "gopvp_green": [
+        {"key": "case_nft_holiday_drink", "weight": 1,   "rarity": "legendary"},
+        {"key": "case_stars_100",         "weight": 100, "rarity": "rare"},
+        {"key": "case_stars_200",         "weight": 40,  "rarity": "epic"},
+    ],
+    "gopvp_beggar": [
+        {"key": "case_stars_50",   "weight": 100, "rarity": "epic"},
+        {"key": "case_gift_teddy", "weight": 15,  "rarity": "legendary"},
     ],
 }
 
@@ -1158,22 +1237,64 @@ async def exchange_inventory_item(inventory_id: int, body: InventoryExchangeBody
 
 @app.post("/api/inventory/{inventory_id}/claim")
 async def claim_inventory_item(inventory_id: int, token: str = Depends(bearer_token)):
-    """"Получить" предмет — помечает его как запрошенный к выводу.
-    Фактическая передача подарка/звёзд происходит вне сайта (поддержка/бот),
-    здесь только фиксируем заявку, чтобы предмет не обменяли повторно."""
+    """"Получить" предмет — помечает его как запрошенный к выводу и шлёт
+    уведомление с деталями предмета всем админам в Telegram. Фактическая
+    передача подарка/NFT/звёзд игроку по-прежнему делается вручную —
+    админ жмёт "Выполнено" в боте, что переводит статус в claimed."""
     with db() as conn:
         user = require_session(conn, token)
         cur = conn.cursor()
-        cur.execute("""
+        cur.execute(f"""
             UPDATE user_inventory SET status = 'claim_requested'
             WHERE id = %s AND user_id = %s AND status = 'owned'
-            RETURNING id
+            RETURNING {INVENTORY_COLUMNS}
         """, (inventory_id, user["user_id"]))
         row = cur.fetchone()
         cur.close()
     if not row:
         raise HTTPException(status_code=404, detail="Предмет не найден в инвентаре")
+
+    item = _serialize_inventory_row(row)
+    await _notify_admins_claim_request(inventory_id, user, item)
     return {"ok": True}
+
+
+def _inventory_item_summary_html(item: dict) -> str:
+    """Собирает человекочитаемое описание предмета для уведомления админам."""
+    type_label = INV_TYPE_LABELS.get(item["type"], item["type"])
+    lines = [f"Тип: <b>{type_label}</b>"]
+    if item["type"] == "nft":
+        if item.get("collection"):
+            lines.append(f"Коллекция: <b>{item['collection']}</b>")
+        if item.get("model"):
+            lines.append(f"Модель: <b>{item['model']}</b>")
+        if item.get("background"):
+            lines.append(f"Фон: <b>{item['background']}</b>")
+        if item.get("symbol"):
+            lines.append(f"Символ: <b>{item['symbol']}</b>")
+    elif item["type"] == "gift" and item.get("collection"):
+        lines.append(f"Коллекция: <b>{item['collection']}</b>")
+    lines.append(f"Цена: ⭐ {item['price_stars']} / {item['price_gp']} GP")
+    return "\n".join(lines)
+
+
+async def _notify_admins_claim_request(inventory_id: int, user: dict, item: dict) -> None:
+    username = user.get("username") or str(user["user_id"])
+    text = (
+        "🎁 <b>Новая заявка на вывод предмета</b>\n\n"
+        f"Игрок: <b>{username}</b> (id {user['user_id']})\n"
+        f"Заявка №{inventory_id}\n\n"
+        f"{_inventory_item_summary_html(item)}"
+    )
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Выполнено", callback_data=f"inv_claim_done:{inventory_id}"),
+        InlineKeyboardButton("❌ Отклонить", callback_data=f"inv_claim_reject:{inventory_id}"),
+    ]])
+    for admin_id in ADMIN_IDS:
+        try:
+            await bot.send_message(chat_id=admin_id, text=text, parse_mode="HTML", reply_markup=keyboard)
+        except TelegramError as e:
+            log.warning(f"Не удалось уведомить админа {admin_id} о заявке {inventory_id}: {e}")
 
 
 def _require_admin(secret: Optional[str]):
@@ -1302,7 +1423,7 @@ async def health():
 
 AVI_GROWTH_RATE = 0.16
 AVI_MIN_BET = 1
-AVI_MAX_BET = 500
+AVI_MAX_BET = None  # верхнего предела нет — ограничивает только баланс игрока
 
 
 class AviatorBetBody(BaseModel):
