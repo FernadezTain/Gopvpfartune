@@ -96,8 +96,8 @@ assert sum(s["weight"] for s in WHEEL_SECTIONS) == 1000
 DEFAULT_CASES = [
     {
         "case_key": "gopvp_green",
-        "name": "Стартовый кейс",
-        "cost": 30,
+        "name": "gopvp_green",
+        "cost": 250,
         "icon": "case_icon/Gopvp_greencase.png",
         "badge": "Новое",
         "sort_order": 1,
@@ -113,11 +113,11 @@ DEFAULT_CASES = [
         ],
     },
     {
-        "case_key": "gopvp_gold",
+        "case_key": "gopvp_beggar",
         "name": "Золотой кейс",
         "cost": 100,
-        "icon": "case_icon/Gopvp_greencase.png",
-        "badge": "Хайп",
+        "icon": "case_icon/Gopvp_beggarcase.png",
+        "badge": "Новое",
         "sort_order": 2,
         "cash_items": [
             {"label": "Пусто",   "value": 0,   "weight": 300, "rarity": "common"},
